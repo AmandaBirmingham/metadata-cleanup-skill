@@ -1,0 +1,450 @@
+term_id	label
+256318	metagenome
+408170	human gut metagenome
+408171	epibiont metagenome
+408172	marine metagenome
+410658	soil metagenome
+410659	mine drainage metagenome
+410661	mouse gut metagenome
+410662	symbiont metagenome
+412754	bioreactor sludge metagenome
+412755	marine sediment metagenome
+412756	whale fall metagenome
+412757	beach sand metagenome
+433724	termite gut metagenome
+433727	hot springs metagenome
+433733	human lung metagenome
+444079	fossil metagenome
+447426	human oral metagenome
+449393	freshwater metagenome
+452919	ice metagenome
+471232	coral reef metagenome
+483425	endophyte metagenome
+496920	saltern metagenome
+496921	stromatolite metagenome
+496922	coral metagenome
+496923	mosquito metagenome
+496924	fish metagenome
+506599	bovine gut metagenome
+506600	chicken gut metagenome
+527639	wastewater metagenome
+527640	microbial mat metagenome
+530537	psyllid metagenome
+539654	human brain metagenome
+539655	human skin metagenome
+540485	mouse skin metagenome
+556182	freshwater sediment metagenome
+646099	human metagenome
+652676	hydrothermal vent metagenome
+655179	air metagenome
+662107	phyllosphere metagenome
+702656	compost metagenome
+703336	wallaby gut metagenome
+717931	groundwater metagenome
+718289	biogas fermenter metagenome
+718308	biofilm metagenome
+749906	gut metagenome
+749907	sediment metagenome
+797283	ant fungus garden metagenome
+870726	food metagenome
+885331	oil production facility metagenome
+903395	salt lake metagenome
+904678	hypersaline lake metagenome
+910258	bee metagenome
+938273	hydrocarbon metagenome
+939928	rhizosphere metagenome
+942017	activated sludge metagenome
+1006967	shoot metagenome
+1041057	sea squirt metagenome
+1070528	viral metagenome
+1070537	biofilter metagenome
+1076140	termite metagenome
+1076179	bioreactor metagenome
+1077527	beetle metagenome
+1077528	ant metagenome
+1077529	wasp metagenome
+1082480	permafrost metagenome
+1115523	upper respiratory tract metagenome
+1118232	root metagenome
+1130098	nematode metagenome
+1131769	human nasopharyngeal metagenome
+1154581	food fermentation metagenome
+1163772	sponge metagenome
+1169740	aquatic metagenome
+1176744	pig metagenome
+1202446	insect gut metagenome
+1204294	snake metagenome
+1213622	bat metagenome
+1214127	activated carbon metagenome
+1218275	bovine metagenome
+1227552	oral metagenome
+1234904	insect metagenome
+1235509	synthetic metagenome
+1236744	dust metagenome
+1243988	tomb metagenome
+1249455	power plant metagenome
+1256227	indoor metagenome
+1260732	coal metagenome
+1263854	anaerobic digester metagenome
+1263966	snow metagenome
+1269027	tidal flat metagenome
+1284368	mangrove metagenome
+1284369	stomach metagenome
+1292099	retting metagenome
+1297858	leaf metagenome
+1297885	plant metagenome
+1300146	algae metagenome
+1303196	industrial waste metagenome
+1306859	mixed culture metagenome
+1311626	rock metagenome
+1319833	halite metagenome
+1325974	wetland metagenome
+1326787	fermentation metagenome
+1327954	placenta metagenome
+1331678	zebrafish metagenome
+1335591	seed metagenome
+1338477	skin metagenome
+1342751	plastisphere metagenome
+1346744	urine metagenome
+1348798	terrestrial metagenome
+1382208	interstitial water metagenome
+1385665	flower metagenome
+1394888	paper pulp metagenome
+1411990	echinoderm metagenome
+1417798	mollusc metagenome
+1427740	rat metagenome
+1436733	rat gut metagenome
+1441287	mouse metagenome
+1441288	primate metagenome
+1447863	clinical metagenome
+1455666	gill metagenome
+1477400	marsupial metagenome
+1503069	termite fungus garden metagenome
+1504969	human blood metagenome
+1504975	salt marsh metagenome
+1508044	ctenophore metagenome
+1510822	pig gut metagenome
+1515737	money metagenome
+1518171	root associated fungus metagenome
+1519372	spider metagenome
+1521111	rodent metagenome
+1527414	biocathode metagenome
+1531857	rock porewater metagenome
+1536899	moonmilk metagenome
+1540818	solid waste metagenome
+1541066	oyster metagenome
+1545499	salt mine metagenome
+1549733	cnidarian metagenome
+1549736	vaginal metagenome
+1561020	crude oil metagenome
+1561046	honey metagenome
+1561972	seawater metagenome
+1564682	subsurface metagenome
+1571227	scorpion gut metagenome
+1573835	koala metagenome
+1579005	dinoflagellate metagenome
+1580551	annelid metagenome
+1583376	cold seep metagenome
+1588881	shrimp gut metagenome
+1591089	urban metagenome
+1592332	sludge metagenome
+1592514	lichen crust metagenome
+1593443	wood decay metagenome
+1594593	bioanode metagenome
+1595979	tick metagenome
+1602165	flotsam metagenome
+1602388	fish gut metagenome
+1604023	electrolysis cell metagenome
+1616037	milk metagenome
+1620422	oil sands metagenome
+1627878	soda lake metagenome
+1628154	pollen metagenome
+1628828	fuel tank metagenome
+1630596	human bile metagenome
+1632839	human vaginal metagenome
+1633571	human milk metagenome
+1642408	parasite metagenome
+1642954	leaf litter metagenome
+1643811	cloud metagenome
+1646512	riverine metagenome
+1647806	lake water metagenome
+1649191	estuary metagenome
+1651086	saline spring metagenome
+1651087	glacier metagenome
+1653169	lichen metagenome
+1658780	wine metagenome
+1659218	probiotic metagenome
+1660082	crab metagenome
+1660347	phage metagenome
+1661029	museum specimen metagenome
+1664808	musk metagenome
+1670605	poultry litter metagenome
+1670606	fungus metagenome
+1671699	sand metagenome
+1672641	rice paddy metagenome
+1675031	oral-nasopharyngeal metagenome
+1675540	moss metagenome
+1676987	blood metagenome
+1679718	human saliva metagenome
+1680915	alkali sediment metagenome
+1681198	pancrustacean metagenome
+1685929	gonad metagenome
+1685930	liver metagenome
+1690257	hypolithon metagenome
+1698289	dietary supplements metagenome
+1699855	food production metagenome
+1704043	ovine metagenome
+1704045	aquifer metagenome
+1705991	HVAC metagenome
+1705994	tin mine metagenome
+1708701	aerosol metagenome
+1710357	biocrust metagenome
+1711999	invertebrate metagenome
+1712032	bear gut metagenome
+1712573	human tracheal metagenome
+1715863	termitarium metagenome
+1723648	cave metagenome
+1729361	lung metagenome
+1733563	snowblower vent metagenome
+1735564	cow dung metagenome
+1748545	biosolids metagenome
+1752603	floral nectar metagenome
+1755691	hospital metagenome
+1759404	concrete metagenome
+1759405	parchment metagenome
+1759406	microbial fuel cell metagenome
+1763544	lagoon metagenome
+1765030	fertilizer metagenome
+1768876	oil field metagenome
+1774142	human eye metagenome
+1774230	surface metagenome
+1775567	lobster shelll metagenome
+1775950	invertebrate gut metagenome
+1778260	gas well metagenome
+1789662	frog metagenome
+1792145	manure metagenome
+1798876	tobacco metagenome
+1799666	oasis metagenome
+1799672	peat metagenome
+1799687	steel metagenome
+1804158	silage metagenome
+1804163	herbal medicine metagenome
+1808295	pitcher plant inquiline metagenome
+1816089	volcano metagenome
+1817679	landfill metagenome
+1822005	cetacean metagenome
+1825055	periphyton metagenome
+1825923	sea anemone metagenome
+1830148	eye metagenome
+1833763	bird metagenome
+1837932	human semen metagenome
+1839947	outdoor metagenome
+1842734	human reproductive system metagenome
+1848041	mite metagenome
+1850221	respiratory tract metagenome
+1851193	pond metagenome
+1859930	anchialine metagenome
+1861841	feces metagenome
+1868704	grain metagenome
+1870980	ear metagenome
+1873886	sea urchin metagenome
+1874687	marine plankton metagenome
+1890690	aquatic viral metagenome
+1892068	human skeleton metagenome
+1897453	tar pit metagenome
+1897463	decomposition metagenome
+1897733	food contamination metagenome
+1898220	glacier lake metagenome
+1898966	sheep metagenome
+1899496	feline metagenome
+1899497	tailings metagenome
+1904483	sheep gut metagenome
+1904484	seagrass metagenome
+1907576	metal metagenome
+1914523	urogenital metagenome
+1917397	phytotelma metagenome
+1929487	hyphosphere metagenome
+1931409	rhizoplane metagenome
+1933216	biofloc metagenome
+1941281	hydrozoan metagenome
+1954208	oil metagenome
+1954210	ballast water metagenome
+1960113	neuston metagenome
+1966731	reproductive system metagenome
+1968542	shale gas metagenome
+1969832	ciliate metagenome
+1981201	brine metagenome
+1983455	desalination cell metagenome
+1983761	internal organ metagenome
+2003122	pipeline metagenome
+2011160	phycosphere metagenome
+2014073	plastic metagenome
+2014611	factory metagenome
+2015907	macroalgae metagenome
+2025496	slag metagenome
+2025951	karst metagenome
+2028342	insect work metagenome
+2034148	canine metagenome
+2038140	shrew metagenome
+2045359	oral viral metagenome
+2047713	mud metagenome
+2048281	bog metagenome
+2053188	starfish metagenome
+2081963	iron metagenome
+2082402	soda lime metagenome
+2083302	amphibian metagenome
+2083488	runoff metagenome
+2083785	bioleaching metagenome
+2126523	shark metagenome
+2173186	whole organism metagenome
+2202140	egg metagenome
+2259532	granuloma metagenome
+2283235	cold spring metagenome
+2315767	eukaryotic plankton metagenome
+2338240	mine metagenome
+2364087	human hair metagenome
+2419775	nutrient bag metagenome
+2487694	bentonite metagenome
+2489051	human viral metagenome
+2493693	clay metagenome
+2495586	chemical production metagenome
+2502012	medical device metagenome
+2508887	salt pan metagenome
+2516875	human urinary tract metagenome
+2517771	human sputum metagenome
+2562286	tree metagenome
+2592666	horse metagenome
+2592667	semen metagenome
+2596910	protist metagenome
+2607062	cellular supernatant metagenome
+2607665	painting metagenome
+2607973	fishing equipment metagenome
+2651591	drinking water metagenome
+2681964	book metagenome
+2682960	eukaryotic metagenome
+2689586	wildlife metagenome
+2705415	human feces metagenome
+2713252	microbial eukaryotic metagenome
+2714341	aquaculture metagenome
+2721627	urinary tract metagenome
+2747213	tannin metagenome
+2753603	phytoplankton metagenome
+2768167	shale fluid metagenome
+2768320	microeukaryotic metagenome
+2769363	microeukaryotic plankton metagenome
+2771423	marine picoeukaryotic metagenome
+2773312	Winogradsky column metagenome
+2775247	bioretention column metagenome
+2790308	bat gut metagenome
+2798575	sea cucumber metagenome
+2803947	photosynthetic picoeukaryotic metagenome
+2805787	eukaryotic aquatic metagenome
+2805829	marsh metagenome
+2809082	goat gut metagenome
+2810607	straw metagenome
+2812732	salt metagenome
+2819232	plant fiber metagenome
+2826927	meat metagenome
+2834405	ore metagenome
+2849098	symbiotic algae metagenome
+2853533	algal bloom metagenome
+2854027	winery metagenome
+2866621	bacterioplankton metagenome
+2881334	spider web metagenome
+2883122	fairy ring metagenome
+2890057	masonry metagenome
+2890062	root nodule metagenome
+2899295	cenote metagenome
+2900150	sugarcane bagasse metagenome
+2901397	peritoneum metagenome
+2916817	biochar metagenome
+2920388	zooxanthellae metagenome
+2924877	watershed metagenome
+2927844	glacier forefield metagenome
+2929471	detritusphere metagenome
+2931384	medical waste metagenome
+2931973	monument metagenome
+2934365	microeukaryotic aquatic metagenome
+2935084	plankton metagenome
+2943808	rabbit gut metagenome
+2949611	osmosis membrane metagenome
+2951411	canine gut metagenome
+2951546	zooplankton metagenome
+2952619	bee bread metagenome
+2963090	prokaryotic metagenome
+2966151	dairy metagenome
+2966445	medicine metagenome
+2968082	mushroom spawn bag metagenome
+2977533	eukaryotic soil metagenome
+2983206	gas scrubber metagenome
+2984156	grassland metagenome
+2993957	animal product metagenome
+2994539	marine eukaryotic metagenome
+3027923	healthcare waste metagenome
+3028119	meiofauna metagenome
+3028305	membrane metagenome
+3031817	claw, hoof, horn & nail metagenome
+3031926	mucilage metagenome
+3043291	mouse brain metagenome
+3049079	clothing metagenome
+3050068	microwave metagenome
+3050631	serofluid metagenome
+3050635	sulfur spring metagenome
+3073560	aquarium metagenome
+3075926	abattoir metagenome
+3081198	air conditioner metagenome
+3085633	forest metagenome
+3087018	bile metagenome
+3096594	ivory metagenome
+3108388	alkali spring metagenome
+3110464	wood metagenome
+3112375	shell metagenome
+3115858	benthos protist metagenome
+3119598	nervous system metagenome
+3125780	biofouling metagenome
+3127350	mammal metagenome
+3127926	oral fungal metagenome
+3129423	adhesive metagenome
+3131975	leachate metagenome
+3132939	simulated metagenome
+3138190	human uterine metagenome
+3140222	microbialite metagenome
+3162978	hydroponics metagenome
+3163553	leather metagenome
+3230020	intertidal zone metagenome
+3231927	spacecraft metagenome
+3341792	farm metagenome
+3355607	sinus metagenome
+3391147	animal work metagenome
+3394441	rumen metagenome
+3398611	microalgae metagenome
+3400346	reservoir metagenome
+3410848	floodplain metagenome
+3413140	lake metagenome
+3418371	truffle nest metagenome
+3445443	cosmetics metagenome
+3446970	sperm metagenome
+3448447	nest metagenome
+3450000	rectal metagenome
+3452863	oxygenic photogranule metagenome
+3454210	stemflow metagenome
+3455618	endobiont metagenome
+3456041	livestock waste metagenome
+3458192	food waste metagenome
+3459384	primate gut metagenome
+3476665	air filter metagenome
+3478414	water metagenome
+3569106	silk metagenome
+3686415	feedlot metagenome
+3711369	building structure metagenome
+3711993	zoo metagenome
+3712620	bird gut metagenome
+3722135	ruminant metagenome
+3722711	trap metagenome
+3738714	insect frass metagenome
+3782360	ferruginous spring metagenome
+3799180	tire metagenome
+3799184	desert metagenome
+3799492	culture medium metagenome
+3806165	reptile metagenome
+3830847	human wound metagenome
