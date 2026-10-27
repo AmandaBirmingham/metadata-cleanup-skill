@@ -5,7 +5,8 @@ description: Help a scientist clean up and complete experimental sample metadata
 
 # Metadata cleanup for repository submission
 
-> **DRAFT.** Scripts marked *(planned)* below do not exist yet. Until they do,
+> **DRAFT.** Scripts marked *(planned)* below do not exist yet; the work still
+> to do is listed in `BACKLOG.md`. Until they do,
 > write equivalent code inside the check script or cleanup script, following
 > `references/check_script.md` and `references/cleanup_script.md`.
 
@@ -293,9 +294,14 @@ it is; the script stops if any listed ID does not exist.
   environment fields): how to search the bundled files, check for obsolete
   entries and confirm with ENA is under "Taxon IDs" and "ENVO terms" in
   `references/ena_requirements.md`.
-- **Sample types:** *(placeholder — the repository's sample type list is still
-  to be added)*.
-- **Repository column names:** *(placeholder — still to be supplied)*.
+- **Sample types:** `assets/sample_types.tsv` (columns: sample_type, label,
+  abbreviation). The metadata holds the `sample_type` identifier
+  (`control_blank`), never the label; a label or abbreviation the scientist
+  writes (`control blank`, `CSF`) is a candidate to map to its identifier,
+  with their approval. *(Planned: a cleanup-script helper for setting a
+  sample type; see BACKLOG.md.)*
+- **Repository column names:** *(placeholder — still to be supplied; see
+  BACKLOG.md)*.
 
 ## Bundled files
 
@@ -316,16 +322,19 @@ write the full absolute path.
 | `references/check_script.md` | The check script: what it runs and its two output files |
 | `references/diff_view.md` | The diff view (daff) used to show each change |
 | `references/pii.md` | PII and PHI to watch for |
+| `assets/ena_null_terms.tsv` | ENA missing-value terms, with ENA's definitions and plain meanings |
+| `assets/sample_types.tsv` | The repository's sample types |
 | `assets/envo_lookup.tsv` | ENVO terms (release 2026-06-26) |
 | `assets/metagenome_taxa.tsv` | Current NCBI metagenome taxa |
 | `assets/ncbi_taxonomy.tsv.gz` | Full NCBI taxonomy list |
 | `scripts/build_envo_lookup.py` | Maintainer tool, not used in sessions: rebuilds `envo_lookup.tsv` from an ENVO `.owl` release plus the repository's ENVO term list |
 | `scripts/metadata_profile.py` | Generic part of the check script: column profile, generic checks, and the Stage 9 checks |
-| `scripts/taxon_lookup.py` *(planned)* | Taxonomy search, obsolete check, ENA check |
-| `scripts/envo_lookup.py` *(planned)* | ENVO search filtered by field |
+| `scripts/taxon_lookup.py` *(planned; see BACKLOG.md)* | Taxonomy search, obsolete check, ENA check |
+| `scripts/envo_lookup.py` *(planned; see BACKLOG.md)* | ENVO search filtered by field |
 | `scripts/diff_tables.py` | Diff between two versions of a table (daff), as an HTML page |
 | `scripts/cleanup_template.py` | Starting point for the cleanup script: dependency block, helper layer, and the check against the decision log |
 | `tests/` | Tests for the bundled scripts |
+| `BACKLOG.md` | Maintainer work list, in priority order; not used in sessions |
 | `run_tests.sh` | Runs the tests, in an environment built from the scripts' own dependency blocks |
 
 Change a bundled script only test-first: write a test for the new behaviour

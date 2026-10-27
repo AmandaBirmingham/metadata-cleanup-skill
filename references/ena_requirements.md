@@ -19,8 +19,9 @@ Most checklists also require:
 - environmental_medium, preferably an ENVO environmental material.
 
 Check the required fields of the chosen checklist on the ENA website when the
-network is available. *(Planned: a bundled snapshot of the common checklists'
-required fields, for when it isn't.)*
+network is available. If it isn't, say so and record the checklist's required
+fields as unconfirmed in the decision log. *(Planned: a bundled snapshot of the
+common checklists' required fields; see BACKLOG.md.)*
 
 ## When ENA fields are out of scope
 
@@ -41,8 +42,9 @@ needs in either case.
   alternate_label, is_obsolete, replaced_by_term_id, obsoletion_kind). It is
   compressed and large (about 3.9 million rows, including obsolete IDs and
   their replacements): search it with a streaming command, never load it
-  whole, until `scripts/taxon_lookup.py` *(planned)* exists. For an exact
-  name, `gzip -dc <skill>/assets/ncbi_taxonomy.tsv.gz | grep -i $'\t<name>\t'`;
+  whole, until `scripts/taxon_lookup.py` *(planned; see BACKLOG.md)* exists.
+  For an exact name,
+  `gzip -dc <skill>/assets/ncbi_taxonomy.tsv.gz | grep -i $'\t<name>\t'`;
   for a partial name, search the whole line (`gzip -dc … | grep -i 'macaca'`)
   and then narrow down.
 - If a taxon ID already in the scientist's file is obsolete, propose the
@@ -71,24 +73,16 @@ needs in either case.
 
 Biomes are themselves environmental systems in ENVO, so a biome also has
 is_env_system = true. *(To confirm against current MIxS guidance: which ENVO
-branches each field should draw from.)*
+branches each field should draw from; see BACKLOG.md.)*
 
-Search it with `scripts/envo_lookup.py` *(planned)* or grep. Never suggest an
-obsolete term. If the scientist's file contains one, propose its
-replacement.
+Search it with `scripts/envo_lookup.py` *(planned; see BACKLOG.md)* or grep.
+Never suggest an obsolete term. If the scientist's file contains one, propose
+its replacement.
 
 ## ENA null values
 
-These are a last resort (SKILL.md, rule 8). Explain each in plain words and
-let the scientist choose:
-
-| Term | Plain meaning |
-|---|---|
-| `not applicable` | This field doesn't make sense for this sample (host body site for a soil sample). |
-| `not collected` | The information was never recorded. |
-| `not provided` | The information was asked for but not supplied. |
-| `restricted access` | It exists but can't be shared (for example, for privacy). |
-| `missing: control sample` | The sample is a control, so the field has no real value. |
-
-*(To confirm against ENA's current list: the full set of accepted missing-value
-terms and their exact wording.)*
+These are a last resort (SKILL.md, rule 8). The accepted terms are in
+`assets/ena_null_terms.tsv` (columns: term, ena_definition, plain_meaning);
+no other term is accepted. Explain each candidate to the scientist with its
+plain meaning, and let them choose. *(Planned: a cleanup-script helper for
+setting an ENA null term; see BACKLOG.md.)*

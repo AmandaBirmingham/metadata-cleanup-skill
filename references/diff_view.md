@@ -40,4 +40,4 @@ have touched (the change list says which decision changed each cell).
 
 The page shows the sample ID but not the spreadsheet row number or column
 letter. When the scientist needs to find a cell in their own copy, give its
-row and column from the change list.
+row and column from the change list. *(Planned fix; see BACKLOG.md.)*

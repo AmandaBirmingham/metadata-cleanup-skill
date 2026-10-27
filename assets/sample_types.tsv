@@ -1,0 +1,13 @@
+sample_type	label	abbreviation
+control_blank	control blank	
+control_spike_in	control spike in	
+control_sterile_water	control sterile water	
+control_sea_water	control sea water	
+artificial_sea_water	artificial sea water	
+estuarine_water_filter	estuarine water filter	
+sea_water	sea water	
+sea_water_filter	sea water filter	
+aquarium_water	aquarium water	
+cerebrospinal_fluid	cerebrospinal fluid	CSF
+plasma	plasma	
+feces	feces	

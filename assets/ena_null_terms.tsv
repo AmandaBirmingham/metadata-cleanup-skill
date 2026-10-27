@@ -1,0 +1,13 @@
+term	ena_definition	plain_meaning
+not applicable	Information is inappropriate to report, can indicate that the standard itself fails to model or represent the information appropriately	This field doesn't make sense for this sample (host body site for a soil sample).
+not collected	Information of an expected format was not given because it has not been collected	The information was never recorded.
+not provided	Information of an expected format was not given, a value may be given at the later stage	The information exists or may exist, but isn't supplied now; it can be added later.
+restricted access	Information exists but can not be released openly because of privacy concerns	It exists but can't be shared, for privacy reasons.
+missing: control sample	Information is not applicable as the sample represents a negative control sample collected in a lab.	The sample is a negative control made in the lab, so the field has no real value.
+missing: sample group	Information is not applicable as the sample represents a group of samples that do not have a single origin.	The sample pools material from several origins, so there is no single value.
+missing: synthetic construct	Information does not exist as the sample represents an ab-initio synthetic construct.	The sample was made synthetically from scratch, so the information doesn't exist.
+missing: lab stock	Information was not collected as the sample represents a cultured cell line or model organism under long-term lab control.	The sample is a cell line or lab-kept organism, so the information wasn't collected.
+missing: third party data	Information does not exist as the metadata was not collected or reported in records predating the 2023 agreement.	The sample comes from records made before 2023 that never held this information.
+missing: data agreement established pre-2023	Data agreements were established before the 2023 INSDC standard and metadata can not be provided.	A data agreement made before 2023 doesn't allow this information to be given.
+missing: endangered species	Information can not be reported as the target organism is endangered e.g. on the IUCN red-list.	The organism is endangered, so the information can't be published.
+missing: human-identifiable	Information can not be reported as the metadata would make the sample human-identifiable.	Giving the information would make it possible to identify a person.

@@ -154,24 +154,27 @@ Available in the template:
   the first draft;
 - writing the change list, and calling `scripts/diff_tables.py` for the diff.
 
-Still to come:
+Not yet in the template (planned; see BACKLOG.md). Until each exists, write
+the code in the decision's block, meeting these requirements:
 
-- other formatting normalization (numbers, booleans, null values);
-- merging, in three forms (see Stage 7 in `merge_and_validation.md`):
+- **setting an ENA null term:** only a term from `assets/ena_null_terms.tsv`;
+- **setting a sample type:** only an identifier from `assets/sample_types.tsv`;
+- **other formatting normalization** (numbers, booleans, null values);
+- **merging,** in three forms (see Stage 7 in `merge_and_validation.md`):
   - **identifier-based:** link column, join type and expected cardinality
     checked;
   - **time-based:** pandas `merge_asof`, with the direction (only earlier
-    events, only later events, or nearest either way), the maximum time window,
-    and the grouping column (for example, subject_id, so one subject's events
-    never attach to another's samples) all stated explicitly in the code. Both time columns must already be converted to real dates by
+    events, only later events, or nearest either way), the maximum time
+    window, and the grouping column (for example, subject_id, so one
+    subject's events never attach to another's samples) all stated explicitly
+    in the code. Both time columns must already be converted to real dates by
     earlier, approved decisions; rows with an empty date are excluded and
     reported;
   - **custom rules** that neither form covers: written as explicit code in the
     decision's block; the rule in plain language is in the decision log;
   - for every form, report matched and unmatched records, and show the diff
     before approval;
-- choosing an ENA null term;
-- applying a change made to the merged table to the per-table copies.
+- **applying a change made to the merged table to the per-table copies.**
 
 ## New or replacement input files
 

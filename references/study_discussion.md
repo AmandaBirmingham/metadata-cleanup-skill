@@ -99,8 +99,8 @@ may say one or both are the same for all samples ("this study is all human
 feces").
 
 - Match what they describe to a host taxon ID (search the bundled taxonomy) and
-  a sample type (repository list), and ask them to confirm or correct each
-  match.
+  a sample type (`assets/sample_types.tsv`; see "Lookups" in SKILL.md), and
+  ask them to confirm or correct each match.
 - For the host taxon ID of free-living samples and of controls, see
   "Taxon IDs" in `ena_requirements.md`.
 

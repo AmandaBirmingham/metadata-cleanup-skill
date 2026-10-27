@@ -54,12 +54,13 @@ from typing import Callable, Iterable
 import frictionless
 from frictionless import Schema, fields as fl_fields, formats
 
+NULL_TERMS_FILE = (
+    Path(__file__).resolve().parent.parent / "assets" / "ena_null_terms.tsv"
+)
+# ENA's missing-value terms: the first column of the bundled list, header skipped
 NULL_TERMS = {
-    "not provided",
-    "not applicable",
-    "not collected",
-    "restricted access",
-    "missing: control sample",
+    line.split("\t")[0]
+    for line in NULL_TERMS_FILE.read_text(encoding="utf-8").splitlines()[1:]
 }
 NAN_LIKE = {"nan", "NaN", "NAN", "None", "NULL", "null", "NA", "N/A", "n/a", "#N/A"}
 UNUSUAL_SPACE = re.compile("[\u00a0\u1680\u2000-\u200b\u202f\u205f\u3000\ufeff]")

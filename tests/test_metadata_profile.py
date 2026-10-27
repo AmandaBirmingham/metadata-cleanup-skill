@@ -146,6 +146,34 @@ def test_column_kind_guesses():
     assert ck(["", "not provided", "not applicable"]) == "empty or null only"
 
 
+@pytest.mark.parametrize(
+    "v",
+    [
+        "",
+        "not applicable",
+        "not collected",
+        "not provided",
+        "restricted access",
+        "missing: control sample",
+        "missing: sample group",
+        "missing: synthetic construct",
+        "missing: lab stock",
+        "missing: third party data",
+        "missing: data agreement established pre-2023",
+        "missing: endangered species",
+        "missing: human-identifiable",
+    ],
+)
+def test_is_null_ena_terms(v):
+    assert mp.is_null(v)
+
+
+def test_is_null_other_values():
+    assert not mp.is_null("missing")
+    assert not mp.is_null("Not Provided")
+    assert not mp.is_null("NA")
+
+
 # ---------------------------------------------------------------------------
 # reading
 # ---------------------------------------------------------------------------

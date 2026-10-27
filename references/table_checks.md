@@ -56,7 +56,9 @@ decides the order in which the scientist hears about it.
   versus what it displays (for example, displays `1-Mar`, stored as a date).
   This catches some values Excel has already converted. It cannot help with
   a CSV that Excel has already saved; there, look for the patterns listed in
-  Stage 3.
+  Stage 3. *(Neither bundled script reads Excel yet; see BACKLOG.md. Until
+  they do, write the reading code in the check and cleanup scripts, as
+  described here.)*
 
 ## Stage 1 — String cleaning
 
