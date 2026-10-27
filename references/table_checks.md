@@ -10,6 +10,33 @@ samples), most findings will be the same for all of them. Report such a
 finding once, for all the tables, and give per-table detail only where the
 tables differ.
 
+## Triage
+
+After the first check run, and before raising any finding, work through the
+whole findings file. The stages below say what each check looks for; triage
+decides the order in which the scientist hears about it.
+
+1. **Group.** Findings that fall on the same rows, or within the same
+   batch-like group (input file, package, plate, manifest, storage unit, or
+   whatever marks a batch in this study), often share one cause. A batch
+   whose dates and identifiers are both written oddly was probably damaged
+   by a spreadsheet program, and that is one problem, not two. Treat each
+   group as one problem. The check script finds batches written differently
+   from most others (S3-19), comparing input files and each column passed as
+   `batch_columns`; before the first run, ask the scientist which columns
+   mark batches in this study.
+2. **Rank.** Order the problems, most serious first:
+   1. information lost or corrupted: damaged identifiers (scientific
+      notation, truncation), partial sorts, spreadsheet damage;
+   2. sample identity: repeated or mismatched sample IDs;
+   3. possible PII or PHI;
+   4. contradictions between fields;
+   5. counts that differ from the Phase 1 estimates;
+   6. inconsistent category values;
+   7. cosmetic formatting.
+3. **Present** each problem with all of its affected rows and every check
+   involved, in ranked order.
+
 ## Stage 0 — Sanity checks
 
 - **Encoding.** Not always ASCII or UTF-8. Identify it; converting to UTF-8 is a
@@ -103,6 +130,9 @@ inference:
 - Columns containing only empty or null values (including ENA null terms).
 - PII in unexpected places. Birthdates have turned up as 4–6 digit numbers in a
   column labeled "zipcode".
+- Long free text in any column, whatever its guessed kind: the check script
+  lists each distinct value of 40 or more characters containing a space
+  (S3-18). Read every one for PII/PHI before raising the first finding.
 
 Sample values from throughout the column, never only the first or last rows:
 files are often sorted, which makes a column look uniform when it isn't.

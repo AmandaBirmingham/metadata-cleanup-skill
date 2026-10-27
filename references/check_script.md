@@ -1,27 +1,22 @@
 # The check script
 
 The check script profiles the original files and looks for values that may be
-wrong. It changes nothing. Every finding and every number you bring to the
-scientist is quoted from its output files, never retyped from a one-off
-command or from memory; if you need a number they don't hold, add a check and
-rerun it.
+wrong. It changes nothing. What you tell the scientist comes only from its
+output files (SKILL.md, Phase 2).
 
 ## Parts
 
 - **Generic part,** bundled with this skill (`scripts/metadata_profile.py`):
   the column profile (Stage 3) and the checks in `table_checks.md` that
   apply to any study. Import it; how to call it is at the top of the file.
-  It needs `frictionless==5.19.1`, so declare that in `check_script.py`'s
-  dependency block. Start `check_script.py` like this, with `<skill>`
-  replaced by the skill's absolute base directory:
+  Pass the batch columns agreed with the scientist as `batch_columns=[…]`
+  (see "Triage" in `table_checks.md`).
+  Start `check_script.py` with a copy of the dependency block (the
+  `# /// script` lines) at the top of `metadata_profile.py`, followed by
+  these lines, with `<skill>` replaced by the skill's absolute base
+  directory:
 
   ```python
-  # /// script
-  # requires-python = ">=3.11"
-  # dependencies = [
-  #     "frictionless==5.19.1",
-  # ]
-  # ///
   import sys
   sys.path.insert(0, "<skill>/scripts")
   from metadata_profile import CheckRun  # noqa: E402

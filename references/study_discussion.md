@@ -1,7 +1,8 @@
 # Phase 1 — Study discussion
 
 Goal: understand the study well enough to know what the metadata must contain,
-before judging what it does contain. Record every answer in the decision log.
+before judging what it does contain. Record every answer in the decision log,
+in the study-information layout given under "Records" in SKILL.md.
 
 ## 1. Hypotheses
 
@@ -100,9 +101,8 @@ feces").
 - Match what they describe to a host taxon ID (search the bundled taxonomy) and
   a sample type (repository list), and ask them to confirm or correct each
   match.
-- Free-living samples with no host: host taxon ID is `not applicable`.
-- Most controls (except some positive controls): host taxon ID is
-  `missing: control sample`.
+- For the host taxon ID of free-living samples and of controls, see
+  "Taxon IDs" in `ena_requirements.md`.
 
 ## 7. ENA requirements
 
@@ -138,9 +138,10 @@ checked against. Then:
   can't give.
 - If no key fields (hypothesis and confounder fields) can be named, ask which
   the scientist wants, and record the answer: they name key fields as they
-  come up; the key-field checks run on every categorical and numeric column,
-  with overlaps that are part of the design (two columns that always agree,
-  or one field that determines another) sorted out before reporting; or the
-  checks are skipped.
+  come up; the key-field checks run on every categorical and numeric column;
+  or the checks are skipped. When the checks run on every column, many
+  overlaps (two columns that always agree, or one field that determines
+  another) will turn up; handle them as "Inadequate variation" in
+  `merge_and_validation.md` describes.
 - At Stage 9, report "no estimate" for counts and variation that were never
   estimated, instead of comparing against anything.

@@ -40,23 +40,26 @@ themselves instead of handing it to repository staff.
    may be deleted.
 3. **Make no decision without the scientist's affirmative consent.** You may
    suggest ("It sounds like all your samples are feces — is that right?"); you
-   may not decide. This covers even whitespace and typos. When an answer is
-   hedged or could be read more than one way, say how you will record it and
-   invite a correction before relying on it.
+   may not decide. This covers even whitespace and typos, and choices a step
+   would otherwise make silently, such as an order, a matching column, or
+   which copy to keep: propose each one explicitly before acting. When an
+   answer is hedged or could be read more than one way, say how you will
+   record it and invite a correction before relying on it.
 4. **Show every change before it is approved.** Add the proposed change to the
-   draft cleanup script, run it, and show the scientist the diff between the
-   previous draft output and the new one: what the change actually did, cell
-   by cell (see `references/diff_view.md`). In the chat, give a summary, the
-   unusual cases, and anything left unchanged on purpose. The scientist may
-   approve a whole batch at once (for example, all whitespace fixes) once they
-   have seen it, or pick out items to discuss individually. If they approve,
-   add the decision to the decision log. If they don't, remove the code and
-   rerun, so the draft output again matches the decisions made so far.
+   decision log as a new entry, add its code to the draft cleanup script, run
+   it, and show the scientist the diff between the previous draft output and
+   the new one: what the change actually did, cell by cell (see
+   `references/diff_view.md`). In the chat, give a summary, the unusual cases,
+   and anything left unchanged on purpose. The scientist may approve a whole
+   batch at once (for example, all whitespace fixes) once they have seen it, or
+   pick out items to discuss individually. If they don't approve, record the
+   rejection as described under "Decision blocks" in
+   `references/cleanup_script.md` and rerun, so the draft output again matches
+   the decisions made so far.
 5. **Every change is made by the cleanup script, never by hand.** Discussion and
    investigation can be free-form; changes, additions and deletions happen only
-   through code in the cleanup script, rerun from the originals. Every decision
-   in the decision log has a block in the script headed by its ID alone
-   (`# D-012`); a decision that changes nothing is just its ID and `pass`. See
+   through code in the cleanup script, rerun from the originals. How each
+   decision appears in the script is set out under "Decision blocks" in
    `references/cleanup_script.md`.
 6. **Never guess unclear values.** A sex column containing 1, 2, 3 stays as-is
    until the scientist says what the codes mean.
@@ -68,6 +71,10 @@ themselves instead of handing it to repository staff.
    samples expected, 4 rows present; columns clearly scrambled by a partial
    sort), explain the problem and ask the scientist to fix the source file
    before continuing.
+10. **Label guesses as guesses.** Any explanation you offer for a pattern in
+    the data ("probably one shipment", "expected from the design") is a guess
+    unless the files or the scientist have established it. Say so and ask;
+    never present it as fact or use it to set a finding aside.
 
 ## Starting a session
 
@@ -99,6 +106,11 @@ At the start, tell the scientist briefly:
 Before starting, check that `uv` is installed (`uv --version`); if not, help
 them install it, since the scripts run with `uv run`.
 
+Before writing anything, propose an output folder next to the input folder,
+named `<input folder>_cleanup` (for inputs in `…/samples`, outputs go to
+`…/samples_cleanup`), and ask the scientist to confirm it or name another.
+Every output, the decision log and the skill-feedback notes go there.
+
 ## Workflow
 
 Work through these phases in order. New or corrected files can arrive at any
@@ -107,14 +119,9 @@ point; when they do, follow "New or replacement input files" in
 
 ### Phase 1 — Study discussion
 
-Follow `references/study_discussion.md`. Establish the hypotheses, the
-expected numbers of non-control and control samples, the fields needed to test
-the hypotheses and to rule out confounders, the units, vocabularies and
-precision of each field, the expected variation in each of those fields
-(samples per value, or range and spread for numeric fields), whether any of
-those fields are likely to vary only together, the controls and
-how many of each, and the host and sample type for every kind of sample. Record the answers in the decision log; they are what the
-metadata is later checked against.
+Follow `references/study_discussion.md`, and record the answers in the
+decision log in the study-information layout under "Records"; they are what
+the metadata is later checked against.
 
 ### Phase 2 — Each table separately
 
@@ -123,21 +130,9 @@ The input may be several files, and a spreadsheet may hold several tables
 are in `references/table_checks.md`.
 
 Start by running the check script on the original files, before discussing
-any finding with the scientist. It has two parts:
-
-- the generic part, bundled with this skill (`scripts/metadata_profile.py`):
-  the column profile and the checks in
-  `references/table_checks.md` that apply to any study;
-- the study-specific part, which you write: cross-field checks (Stage 5) and
-  anything else the study discussion calls for.
-
-Each run writes two new timestamped files:
-
-- a **profile** for the scientist to read: every column's counts, ranges,
-  value frequencies and distribution;
-- a **findings** file: one row per value that may be wrong, with the check
-  that flagged it and the value's location (file, spreadsheet row, column,
-  sample ID).
+any finding with the scientist. Its parts (generic and study-specific) and
+its two outputs (a profile for the scientist, a findings file for you) are
+described in `references/check_script.md`.
 
 After every run, give the scientist the profile's full path and ask them to
 open it in a browser and look through it: to check that the counts, ranges
@@ -147,31 +142,23 @@ before bringing up any finding. Tell them the findings file is a working list
 for you, so they don't need to open it; you will bring its findings to them a
 few at a time.
 
-Every finding and number you bring to the scientist is quoted from these
-files, never retyped from a one-off command. Rerun the check script when a
-check is added, or when the scientist asks; not after every draft run of the
-cleanup script. See `references/check_script.md`.
+Every finding, number and location (column letter, spreadsheet row, count)
+you bring to the scientist is quoted from these files, never counted,
+computed, recalled, or retyped from a one-off command; if you need a number
+they don't hold, add a check and rerun it. When to run the check script is
+under "When to run it" in `references/check_script.md`.
 
-Then work through the stages with the scientist, using its findings:
+Before raising any finding, carry out the triage under "Triage" in
+`references/table_checks.md`. From the first run, also compare the sample and control counts with
+the Phase 1 estimates, using a count check written for the study, and raise a
+large gap early, as possible missing data.
 
-0. **Sanity checks** — encoding, ragged rows, blank rows/columns, quote characters.
-1. **String cleaning** — first, tabs and line breaks inside cells, each
-   flagged for a decision since the output is TSV; then blank rows/columns,
-   whitespace, row endings.
-2. **Headers** — duplicate column names must be resolved with the scientist
-   before anything else.
-3. **Profiling** — look at every column as text, before any cleanup of values:
-   counts, distinct values, likely column kind, Excel damage, PII, implausible
-   values. This is the check script's profile.
-4. **Categorical values** — spelling, capitalization, synonyms, shorthand,
-   placeholders.
-5. **Cross-field consistency** — values that are each valid but contradict
-   each other within a sample.
-6. **Formatting** — decimal separators, trailing `.0`, booleans, dates, null
-   values. Surface form only; meaning does not change.
+Then work through the stages in `references/table_checks.md` with the
+scientist, using its findings: 0 sanity checks, 1 string cleaning, 2 headers,
+3 profiling, 4 categorical values, 5 cross-field consistency, 6 formatting.
 
-Present findings in plain language, a few at a time, most serious first.
-Give the location of every value a finding concerns, as the findings file
+Present the problems in plain language, a few at a time, in triage order.
+Give the location of every value a problem concerns, as the findings file
 records it, so the scientist can find it in their own copy. Each
 answer becomes an entry in the decision log; each one that changes data is
 carried out in the cleanup script and approved as rule 4 describes.
@@ -181,25 +168,14 @@ carried out in the cleanup script and approved as rule 4 describes.
 If there is more than one table, combine them as described in
 `references/merge_and_validation.md`: tables with the same columns for
 different samples are stacked; tables holding different information are
-merged on a link. For a merge, decide the linking column, type and expected
-cardinality explicitly with the scientist; for stacking, confirm the column
-sets match and sample IDs stay unique. Treat unmatched rows as
+merged on a link. Before combining, agree with the scientist on every item
+in the stacking or merging checklist there. Treat unmatched rows as
 information (they may be controls), never as noise to discard.
 
 ### Phase 4 — Required fields and final validation
 
-On the merged table:
-
-- **Required fields** (Stage 8): every sample needs host taxon ID and sample
-  type; unless ENA fields are out of scope for this work, every sample also
-  needs the ENA fields. See `references/ena_requirements.md`.
-- **Final validation** (Stage 9): no duplicate sample IDs, all required fields
-  filled, row counts as expected, no blanks or NaN introduced by merging, and a
-  spot-check of a few records with the scientist. Run the check script on the
-  latest draft outputs. Then compare the final counts with the Phase 1 estimates, and
-  check that every hypothesis and confounder field still varies enough to be
-  tested and isn't confounded with another key field (see
-  `references/merge_and_validation.md`).
+On the merged table, check the required fields (Stage 8) and carry out the
+final validation (Stage 9) as `references/merge_and_validation.md` describes.
 
 ### Phase 5 — Delivery
 
@@ -208,8 +184,8 @@ When the scientist confirms the discussion is done:
 1. Copy the draft cleanup script to a final one, `cleanup_<timestamp>.py`,
    without `draft` in its name. Don't change its code.
 2. Run the final script on the original files. Its outputs carry the same
-   timestamp, which links them to it: `<table>__cleanup_<timestamp>.tsv`, and
-   `merged__cleanup_<timestamp>.tsv` if there was more than one table.
+   timestamp, which links them to it; their names are given under
+   "Structure" in `references/cleanup_script.md`.
 3. If the scientist asks, show the diff between the original files and the
    final outputs.
 
@@ -255,8 +231,34 @@ it is; the script stops if any listed ID does not exist.
   from the check script). It is only ever added to: append each new entry to
   the end of the file, and never edit or remove an earlier one. If the
   scientist changes their mind, add a new entry that names the one it
-  replaces; the original stays as it was. Each decision entry follows this
-  layout exactly, so the cleanup script can check itself against the log:
+  replaces; the original stays as it was.
+
+  Study information (from Phase 1, or learned about the study later) goes in
+  entries with this layout, so final validation always finds the same items:
+
+  ```markdown
+  ## Study information · 2026-10-22 13:40
+  Study status: new study; design can still change
+  Purpose: compare skin communities of treated and untreated acne
+  Hypotheses: treated subjects resemble healthy controls after two weeks
+  Expected non-control samples: about 120
+  Expected controls: 8 extraction blanks; 4 mock communities
+  Key fields: subject_id, timepoint, treatment; confounders swab_type, site
+  Units, vocabularies and precision: age in whole years; timepoint as Week 0/2
+  Expected variation: about 60 treated and 60 untreated samples
+  Fields that may vary together: unknown
+  Host and sample type: human skin swabs; blanks have no host
+  ENA: in scope
+  ```
+
+  - every line appears in every study-information entry; anything not
+    discussed is `unknown`;
+  - a later entry that changes any line repeats the whole list, with the
+    changed lines updated, and adds
+    `Replaces: Study information · <date and time of the earlier entry>`.
+
+  Each decision entry follows this layout exactly, so the cleanup script can
+  check itself against the log:
 
   ```markdown
   ## D-003 · 2026-10-22 14:05
@@ -287,22 +289,10 @@ it is; the script stops if any listed ID does not exist.
 
 ## Lookups
 
-- **NCBI taxonomy** (sample taxon ID and host taxon ID):
-  - `assets/metagenome_taxa.tsv` — the current "… metagenome" taxa, used as the
-    ENA sample taxon for most microbiome samples. Small; read it directly.
-  - `assets/ncbi_taxonomy.tsv.gz` — the full NCBI list (about 3.9 million rows,
-    including obsolete IDs and their replacements). Never read it whole; search
-    it with `scripts/taxon_lookup.py` *(planned)* or, until then,
-    `gzip -dc <skill>/assets/ncbi_taxonomy.tsv.gz | grep -i $'\t<name>\t'` for
-    an exact name, or `grep -i '<part of name>'` for a partial one.
-  - If the network is available, also confirm with ENA that the taxon is
-    *submittable*, since ENA rejects taxa that are not. If ENA can't be
-    reached, say so and note it in the decision log as unconfirmed.
-  - Check existing taxon IDs in the scientist's file for obsolete entries and
-    propose the replacement.
-- **ENVO** (the three environment fields): `assets/envo_lookup.tsv`, with
-  labels, synonyms, parents, obsolete status, and flags for which field a term
-  suits. Search with `scripts/envo_lookup.py` *(planned)* or grep.
+- **NCBI taxonomy** (sample and host taxon IDs) and **ENVO** (the three
+  environment fields): how to search the bundled files, check for obsolete
+  entries and confirm with ENA is under "Taxon IDs" and "ENVO terms" in
+  `references/ena_requirements.md`.
 - **Sample types:** *(placeholder — the repository's sample type list is still
   to be added)*.
 - **Repository column names:** *(placeholder — still to be supplied)*.
@@ -335,7 +325,8 @@ write the full absolute path.
 | `scripts/envo_lookup.py` *(planned)* | ENVO search filtered by field |
 | `scripts/diff_tables.py` | Diff between two versions of a table (daff), as an HTML page |
 | `scripts/cleanup_template.py` | Starting point for the cleanup script: dependency block, helper layer, and the check against the decision log |
-| `tests/` | Tests for the bundled scripts; run from the skill folder with `uv run --no-project --with pytest==8.3.5 --with daff==1.4.2 --with frictionless==5.19.1 --with pandas==3.0.5 pytest tests/` |
+| `tests/` | Tests for the bundled scripts |
+| `run_tests.sh` | Runs the tests, in an environment built from the scripts' own dependency blocks |
 
 Change a bundled script only test-first: write a test for the new behaviour
 or the bug, run it and see it fail, then change the script until it passes.

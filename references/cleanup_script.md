@@ -36,9 +36,8 @@ run the script is in the text at the top of the template.
 - **Deterministic.** Same inputs, same outputs, every time. No randomness, no
   network access, no dependence on today's date: the run timestamp is passed
   in or recorded, never used to decide anything.
-- **Never writes to the originals or overwrites anything.** All outputs get a
-  timestamp suffix; until the discussion is done, their names also say
-  `draft` (`<table>__draft_<timestamp>.tsv`).
+- **Never writes to the originals or overwrites anything** (SKILL.md, rules
+  1 and 2); output names are given under "Structure" below.
 - **Always replays from the originals.** Each run applies every decision in
   order, starting from the untouched input files. Never edit an earlier
   output.
@@ -61,19 +60,24 @@ run the script is in the text at the top of the template.
    anything, and renaming a column later doesn't break earlier decisions.
 4. **Phase A — per-table decisions**, in the order agreed.
 5. **Merge decisions.**
-6. **Phase B — decisions on the merged table.** A change here to a field that
-   came from an input table is also applied to that table's corrected copy.
+6. **Phase B — decisions on the merged table.** Which outputs such a change
+   reaches is set out in SKILL.md, "What goes in which output".
 7. **Write outputs:** one UTF-8 TSV per input table (a workbook gives one per
    tab), plus the merged TSV. Drafts are named `<file>__draft_<timestamp>.tsv`
    (`<file>__<tab>__draft_<timestamp>.tsv` for a workbook); the final run's
-   outputs are named as in SKILL.md, Phase 5. Stop if any value contains a tab
+   outputs are named `<file>__cleanup_<timestamp>.tsv`, and the merged one
+   `merged__cleanup_<timestamp>.tsv`. Stop if any value contains a tab
    or line break.
 8. **Write the change list and the diff.** The change list
    (`changes__draft_<timestamp>.tsv`) has one row per changed cell: decision
    ID, file, row, column, old value, new value. Then call
    `scripts/diff_tables.py` to write the diff between the previous draft
    output and this one (see `diff_view.md`). The change list is mainly for
-   you; the diff is what the scientist looks at.
+   you; the diff is what the scientist looks at. A stacked table with no
+   earlier draft has nothing to diff against; the run writes
+   `<name>__stacking__draft_<timestamp>.tsv` instead (rows from each table,
+   totals, and whether the stacked output equals the per-table outputs in
+   order) and prints its summary.
 
 ## Decision blocks
 
@@ -95,6 +99,11 @@ set_value(t["samples"], rows, "sample_type", "extraction blank", decision="D-014
 
 When a later decision replaces an earlier one, the earlier block becomes
 `pass` and the new block holds the code.
+
+A proposed change is logged before it is shown (SKILL.md, rule 4). If the
+scientist rejects it, add a new entry with `Replaces:` naming the proposal
+and `Changes data: no`; both blocks are then `pass`, and the rejected
+proposal stays in the log as a record.
 
 The script checks itself against the decision log every time it runs, and
 stops if they disagree: every ID in the log needs exactly one block, every
@@ -141,7 +150,8 @@ Available in the template:
   `delete_column`);
 - deleting rows (`delete_rows`);
 - whitespace normalization (`normalize_whitespace`);
-- stacking tables with the same columns (`stack`);
+- stacking tables with the same columns (`stack`), with a stacking report on
+  the first draft;
 - writing the change list, and calling `scripts/diff_tables.py` for the diff.
 
 Still to come:
@@ -179,6 +189,7 @@ When the scientist supplies a corrected or additional file:
 
 ## Information that isn't in the metadata
 
-If a rule depends on information that isn't in any table, add it first as a
-new column (its own decision, with the values the scientist supplies),
-then refer to that column. An explicit list of sample IDs needs no new column.
+When a rule depends on information that isn't in any table (SKILL.md,
+"Information that isn't in the metadata"), the script adds it first as a new
+column, by its own decision with the values the scientist supplies; later
+decisions refer to that column.

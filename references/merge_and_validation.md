@@ -25,6 +25,9 @@ Before stacking, check and confirm with the scientist:
 - the column sets are the same; columns present in only some tables are
   reported, never silently added as blanks;
 - sample IDs are unique across all the tables, not just within each;
+- the stacking order: propose one (for example, by batch or plate number, or
+  by collection period), say whether and how it differs from the order of the
+  file names, and record the agreed order in the decision;
 - whether to keep a column recording which file each row came from (a field
   from no input table, so it appears only in the merged file);
 - the expected total row count (the sum of the tables' rows, adjusted for
@@ -95,9 +98,8 @@ Repeat until all tables are merged.
 
 ### Changes after merging
 
-A correction made after merging to a field that came from an input table must
-also be applied to that table's corrected copy. Fields that came from no input
-table appear only in the merged file.
+Which outputs a change made after merging reaches is set out in SKILL.md,
+"What goes in which output".
 
 ## Stage 8 — Required fields
 
@@ -109,8 +111,8 @@ Every sample needs:
 - host taxon ID;
 - sample type.
 
-Unless the scientist states the data will **never** be made public through ENA,
-every sample also needs:
+Unless ENA fields are out of scope for this work (see "When ENA fields are
+out of scope" in `ena_requirements.md`), every sample also needs:
 
 - sample taxon ID;
 - an ENA checklist;
@@ -138,7 +140,9 @@ spot-check a few records with the scientist.
 
 ### Comparison with the study-discussion estimates
 
-Compare the final merged file with the estimates recorded in Phase 1:
+Counts were already compared with the estimates from the first check run
+(SKILL.md, Phase 2); this is the final comparison. Compare the final merged
+file with the estimates recorded in Phase 1:
 
 - number of non-control samples, and number of control samples, each compared
   with its own estimate;
@@ -164,7 +168,9 @@ include:
 - **key fields that vary only together**, so their effects can't be told
   apart (every vegetarian is in cage 1 and every omnivore in cage 2, so diet
   and cage are confounded). Check every pair of key fields, including each
-  hypothesis field against each confounder field.
+  hypothesis field against each confounder field. Raise each such pair as a
+  question, with no assumed explanation: only the scientist can say whether
+  it is part of the design.
 
 If Phase 1 gave no key fields, use the choice recorded in the decision log
 (see "Pre-existing studies" in `study_discussion.md`).

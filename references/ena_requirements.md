@@ -32,23 +32,26 @@ These fields are optional for this work in two cases:
   the file already holds).
 
 Ask which applies; don't assume. Record the scientist's statement in the
-decision log. Host taxon ID and sample type are still required for every
-sample in both cases.
+decision log. Stage 8 in `merge_and_validation.md` lists what every sample
+needs in either case.
 
 ## Taxon IDs
 
 - Search `assets/ncbi_taxonomy.tsv.gz` (columns: term_id, label,
   alternate_label, is_obsolete, replaced_by_term_id, obsoletion_kind). It is
-  compressed and large: search it with a streaming command, never load it
-  whole. For partial names, search the whole line
-  (`gzip -dc … | grep -i 'macaca'`) and then narrow down.
+  compressed and large (about 3.9 million rows, including obsolete IDs and
+  their replacements): search it with a streaming command, never load it
+  whole, until `scripts/taxon_lookup.py` *(planned)* exists. For an exact
+  name, `gzip -dc <skill>/assets/ncbi_taxonomy.tsv.gz | grep -i $'\t<name>\t'`;
+  for a partial name, search the whole line (`gzip -dc … | grep -i 'macaca'`)
+  and then narrow down.
 - If a taxon ID already in the scientist's file is obsolete, propose the
   replacement from replaced_by_term_id.
 - If the network is available, confirm with ENA's taxonomy service that the
-  taxon is submittable. If not, record the taxon as unconfirmed in the
-  decision log.
+  taxon is submittable, since ENA rejects taxa that are not. If ENA can't be
+  reached, say so and record the taxon as unconfirmed in the decision log.
 - Host taxon ID special values: free-living samples → `not applicable`; most
-  controls → `missing: control sample`.
+  controls (except some positive controls) → `missing: control sample`.
 
 ## ENVO terms
 
@@ -70,13 +73,14 @@ Biomes are themselves environmental systems in ENVO, so a biome also has
 is_env_system = true. *(To confirm against current MIxS guidance: which ENVO
 branches each field should draw from.)*
 
-Never suggest an obsolete term. If the scientist's file contains one, propose
-its replacement.
+Search it with `scripts/envo_lookup.py` *(planned)* or grep. Never suggest an
+obsolete term. If the scientist's file contains one, propose its
+replacement.
 
 ## ENA null values
 
-Use only after a real effort to get actual values. Explain each in plain words
-and let the scientist choose:
+These are a last resort (SKILL.md, rule 8). Explain each in plain words and
+let the scientist choose:
 
 | Term | Plain meaning |
 |---|---|

@@ -23,7 +23,9 @@ per table.
 ## Which diff
 
 - **By default:** the previous draft output against the new one, so the
-  scientist sees what the latest change actually did.
+  scientist sees what the latest change actually did. A stacked table's first
+  draft has no previous draft; show its stacking report instead (Structure,
+  step 8, in `cleanup_script.md`).
 - **Original files against the final outputs:** only when the scientist asks,
   and only after they have said the discussion is done and the final script
   has been run (SKILL.md, Phase 5).

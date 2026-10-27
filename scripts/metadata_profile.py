@@ -1,9 +1,15 @@
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "frictionless==5.19.1",
+# ]
+# ///
 """Generic part of the check script: column profile and generic checks.
 
-Imported by a study's check script. Needs frictionless==5.19.1 (declare it in
-the check script's dependency block); structural checks (ragged and blank
-rows, blank and duplicate column names, duplicate rows, truncated values) are
-done by frictionless, run with quoting off and every column read as text.
+Imported by a study's check script, which copies the dependency block above
+into its own; structural checks (ragged and blank rows, blank and duplicate
+column names, duplicate rows, truncated values) are done by frictionless, run
+with quoting off and every column read as text.
 
     import sys; sys.path.insert(0, "<skill>/scripts")
     from metadata_profile import CheckRun
@@ -40,7 +46,7 @@ import io
 import re
 import statistics
 from collections import Counter, defaultdict
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Callable, Iterable
@@ -48,8 +54,13 @@ from typing import Callable, Iterable
 import frictionless
 from frictionless import Schema, fields as fl_fields, formats
 
-NULL_TERMS = {"not provided", "not applicable", "not collected", "restricted access",
-              "missing: control sample"}
+NULL_TERMS = {
+    "not provided",
+    "not applicable",
+    "not collected",
+    "restricted access",
+    "missing: control sample",
+}
 NAN_LIKE = {"nan", "NaN", "NAN", "None", "NULL", "null", "NA", "N/A", "n/a", "#N/A"}
 UNUSUAL_SPACE = re.compile("[\u00a0\u1680\u2000-\u200b\u202f\u205f\u3000\ufeff]")
 MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec"
@@ -58,8 +69,21 @@ GENE_DATE = re.compile(rf"(\d{{1,2}}-({MONTHS})|({MONTHS})-\d{{1,2}})", re.I)
 # A name matches when one of its parts (split at _ - . spaces and camelCase)
 # is one of these words, so "sample_id" and "shipping_number" match but
 # "humidity" and "acidity" don't.
-LABEL_WORDS = {"id", "ids", "identifier", "identifiers", "taxid", "uuid", "guid", "uid",
-               "number", "code", "barcode", "lot", "accession"}
+LABEL_WORDS = {
+    "id",
+    "ids",
+    "identifier",
+    "identifiers",
+    "taxid",
+    "uuid",
+    "guid",
+    "uid",
+    "number",
+    "code",
+    "barcode",
+    "lot",
+    "accession",
+}
 
 
 def is_label_name(name: str) -> bool:
@@ -70,26 +94,63 @@ def is_label_name(name: str) -> bool:
 KINDS = ("numeric", "categorical", "date/time", "identifier", "free text")
 PARTIAL_DATE = re.compile(r"\d{4}(-\d{2})?")
 NUMBER = re.compile(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?")
-DATE_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S",
-                "%m/%d/%Y %H:%M", "%m/%d/%y %H:%M", "%m/%d/%Y", "%m/%d/%y",
-                "%d.%m.%Y", "%Y-%m", "%Y"]
+DATE_FORMATS = [
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y-%m-%d",
+    "%Y-%m-%dT%H:%M:%S",
+    "%m/%d/%Y %H:%M",
+    "%m/%d/%y %H:%M",
+    "%m/%d/%Y",
+    "%m/%d/%y",
+    "%d.%m.%Y",
+    "%Y-%m",
+    "%Y",
+]
 PII_COLUMN = re.compile(
     r"(^|_)(first_?name|last_?name|full_?name|sur_?name|given_?name|patient_?name|"
     r"participant_?name|initials|ssn|social_?security|mrn|medical_?record|dob|bday|"
     r"date_?of_?birth|birth_?date|birthday|street|address|zip_?code|zip|postal_?code|"
     r"phone|telephone|mobile|fax|e_?mail|passport|driver|license|licence|insurance|"
-    r"account_?number|ip_?address)($|_)", re.I)
+    r"account_?number|ip_?address)($|_)",
+    re.I,
+)
 PII_VALUE = [
     ("SSN pattern", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
-    ("phone number pattern", re.compile(r"\(\d{3}\)\s*\d{3}-\d{4}|\b\d{3}[-.]\d{3}[-.]\d{4}\b")),
+    (
+        "phone number pattern",
+        re.compile(r"\(\d{3}\)\s*\d{3}-\d{4}|\b\d{3}[-.]\d{3}[-.]\d{4}\b"),
+    ),
     ("email address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
 ]
 RANGE_SUGGESTIONS = [  # (column-name pattern, low, high, reason) -- suggestions only
-    (re.compile(r"(^|_)age($|_)", re.I), 0, 90, "age 0 or over 90 is unusual; over 89 is a HIPAA identifier"),
-    (re.compile(r"(^|_)(bmi|body_mass_index)($|_)", re.I), 14, 60, "BMI below 14 or above 60 is implausible"),
-    (re.compile(r"(depth|volume|concentration|conc|weight|height|mass)", re.I), 0, None,
-     "negative values are impossible"),
+    (
+        re.compile(r"(^|_)age($|_)", re.I),
+        0,
+        90,
+        "age 0 or over 90 is unusual; over 89 is a HIPAA identifier",
+    ),
+    (
+        re.compile(r"(^|_)(bmi|body_mass_index)($|_)", re.I),
+        14,
+        60,
+        "BMI below 14 or above 60 is implausible",
+    ),
+    (
+        re.compile(r"(depth|volume|concentration|conc|weight|height|mass)", re.I),
+        0,
+        None,
+        "negative values are impossible",
+    ),
 ]
+SCI_NOTE = (
+    "written in scientific notation (spreadsheet damage?): digits may have been lost"
+)
+SCI_ID_NOTE = "identifier in scientific notation: digits are lost and cannot be recovered from this file"
+# Free text at least this long (and containing a space) is listed for a PII/PHI read
+LONG_TEXT_MIN_CHARS = 40
+# A column counts as regularly written when other batches use at most this many shapes
+MAX_USUAL_SHAPES = 5
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +171,7 @@ def display_name(path: Path) -> str:
 
 class Row(dict):
     """One data row: column -> value, plus .line (spreadsheet row, header = 1)."""
+
     line: int
     cells: list[str]
 
@@ -134,16 +196,26 @@ class Table:
             lines = self.text.split("\n")
             if lines and lines[-1] == "":
                 lines = lines[:-1]
-            records = [(l[:-1] if l.endswith("\r") else l).split("\t") for l in lines]
+            records = [
+                (line[:-1] if line.endswith("\r") else line).split("\t")
+                for line in lines
+            ]
         self.header = records[0] if records else []
         # Column keys: the column name, made unique where names repeat or are
         # blank ("status [col C]", "[col D]"), so no column is lost.
         seen = Counter(self.header)
-        self.keys = [c if (c.strip() and seen[c] == 1) or (c.strip() and i == self.header.index(c))
-                     else (f"{c} [col {column_letter(i)}]" if c.strip() else f"[col {column_letter(i)}]")
-                     for i, c in enumerate(self.header)]
+        self.keys = [
+            c
+            if (c.strip() and seen[c] == 1) or (c.strip() and i == self.header.index(c))
+            else (
+                f"{c} [col {column_letter(i)}]"
+                if c.strip()
+                else f"[col {column_letter(i)}]"
+            )
+            for i, c in enumerate(self.header)
+        ]
         self.index = {k: i for i, k in enumerate(self.keys)}
-        self.kinds: dict[str, str] = {}   # the scientist's corrections, set by CheckRun
+        self.kinds: dict[str, str] = {}  # the scientist's corrections, set by CheckRun
         self.rows: list[Row] = []
         for i, cells in enumerate(records[1:], start=2):
             row = Row(zip(self.keys, cells + [""] * (len(self.keys) - len(cells))))
@@ -171,7 +243,7 @@ def as_number(v: str):
 def parse_date(v: str):
     v = v.strip()
     if v.isdigit() and not (len(v) == 4 and 1800 <= int(v) <= 2100):
-        return None, None          # bare numbers count only as plausible years
+        return None, None  # bare numbers count only as plausible years
     for f in DATE_FORMATS:
         try:
             return datetime.strptime(v.strip(), f), f
@@ -197,7 +269,11 @@ def column_kind(values: list[str], name: str = "") -> str:
             return "categorical (numbers)" if numeric else "categorical"
         return "identifier"
     if numeric:
-        return "categorical (numbers)" if distinct <= 20 and n >= 2 * distinct else "numeric"
+        return (
+            "categorical (numbers)"
+            if distinct <= 20 and n >= 2 * distinct
+            else "numeric"
+        )
     if sum(parse_date(v)[0] is not None for v in vals) >= 0.9 * n:
         return "date/time"
     if distinct <= 20 or distinct <= 0.05 * n:
@@ -214,22 +290,38 @@ Check = Callable[["Table"], Iterable[tuple]]
 
 
 class CheckRun:
-    def __init__(self, paths: list[str | Path], sample_id: str, as_of: str | None = None,
-                 kinds: dict[str, str] | None = None):
+    def __init__(
+        self,
+        paths: list[str | Path],
+        sample_id: str,
+        as_of: str | None = None,
+        kinds: dict[str, str] | None = None,
+        batch_columns: list[str] | None = None,
+    ):
         """kinds: the scientist's corrections to the guessed column kinds, for this
         dataset only, e.g. {"station": "categorical"}. Kept in the study's check
-        script, so they apply every time the profile is remade."""
+        script, so they apply every time the profile is remade.
+        batch_columns: columns whose values mark batches (package, plate, ...),
+        as agreed with the scientist; S3-19 compares each batch with the rest."""
         self.tables = [Table(p) for p in paths]
         self.sample_id = sample_id
         self.as_of = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else None
         self.checks: list[tuple[str, str, Check]] = []
         self.kinds = dict(kinds or {})
+        self.batch_columns = list(batch_columns or [])
         known = {k for t in self.tables for k in t.keys}
         for col, kind in self.kinds.items():
             if col not in known:
                 raise ValueError(f"kinds: no column named {col!r} in these files")
             if kind not in KINDS:
-                raise ValueError(f"kinds: {kind!r} for {col!r} is not one of {', '.join(KINDS)}")
+                raise ValueError(
+                    f"kinds: {kind!r} for {col!r} is not one of {', '.join(KINDS)}"
+                )
+        for col in self.batch_columns:
+            if col not in known:
+                raise ValueError(
+                    f"batch_columns: no column named {col!r} in these files"
+                )
         for t in self.tables:
             t.kinds = self.kinds
 
@@ -241,6 +333,7 @@ class CheckRun:
         def deco(fn: Check) -> Check:
             self.checks.append((cid, description, fn))
             return fn
+
         return deco
 
     def add(self, cid: str, description: str, fn: Check) -> None:
@@ -250,7 +343,9 @@ class CheckRun:
         for cid, description, fn in GENERIC_CHECKS:
             self.add(cid, description, fn)
 
-    def suggest_range_columns(self) -> list[tuple[str, float | None, float | None, str]]:
+    def suggest_range_columns(
+        self,
+    ) -> list[tuple[str, float | None, float | None, str]]:
         """Columns whose names suggest a plausible range. For the agent to ASK the
         scientist about; nothing is checked until range_check() is called."""
         out, seen = [], set()
@@ -265,27 +360,45 @@ class CheckRun:
                         break
         return out
 
-    def range_check(self, column: str, low: float | None = None, high: float | None = None,
-                    cid: str | None = None) -> None:
+    def range_check(
+        self,
+        column: str,
+        low: float | None = None,
+        high: float | None = None,
+        cid: str | None = None,
+    ) -> None:
         """Flag numeric values below low or above high (only after the scientist agrees)."""
         cid = cid or f"R-{column}"
-        bounds = " or ".join(x for x in [f"below {low}" if low is not None else "",
-                                          f"above {high}" if high is not None else ""] if x)
+        bounds = " or ".join(
+            x
+            for x in [
+                f"below {low}" if low is not None else "",
+                f"above {high}" if high is not None else "",
+            ]
+            if x
+        )
 
         def fn(t: Table):
             if column not in t.index:
                 return
             for r in t.rows:
                 x = as_number(r[column])
-                if x is not None and ((low is not None and x < low) or (high is not None and x > high)):
+                if x is not None and (
+                    (low is not None and x < low) or (high is not None and x > high)
+                ):
                     yield r, column
+
         self.add(cid, f"{column} {bounds}", fn)
 
-    def stage9_checks(self, required: list[str] | None = None,
-                      expected_rows: dict[str, int] | None = None) -> None:
+    def stage9_checks(
+        self,
+        required: list[str] | None = None,
+        expected_rows: dict[str, int] | None = None,
+    ) -> None:
         """Stage 9 (final validation), run on the latest draft outputs."""
         self.add("S9-01", "empty or NaN-like value", _s9_empty)
         if required:
+
             def fn(t: Table):
                 for c in required:
                     if c not in t.index:
@@ -294,12 +407,15 @@ class CheckRun:
                     for r in t.rows:
                         if r[c] == "" or r[c] in NAN_LIKE:
                             yield r, c
+
             self.add("S9-02", "required field not filled", fn)
         if expected_rows:
+
             def fn(t: Table):
                 exp = expected_rows.get(t.name)
                 if exp is not None and exp != len(t.rows):
                     yield None, None, f"{len(t.rows)} data rows; expected {exp}"
+
             self.add("S9-03", "row count differs from the expected count", fn)
 
     # -- running and writing ------------------------------------------------
@@ -325,21 +441,44 @@ class CheckRun:
     def _finding(self, cid, description, t, row, column, note):
         cols = column.split(" = ") if column else []
         letters = ", ".join(t.letter(c) for c in cols if t.letter(c))
-        value = row.get(column, "") if (row is not None and column in (row or {})) else ""
+        value = (
+            row.get(column, "") if (row is not None and column in (row or {})) else ""
+        )
         sample = row.get(self.sample_id, "") if row is not None else ""
-        return (cid, description, t.name, str(row.line) if row is not None else "",
-                letters, column or "", sample, value, note)
+        return (
+            cid,
+            description,
+            t.name,
+            str(row.line) if row is not None else "",
+            letters,
+            column or "",
+            sample,
+            value,
+            note,
+        )
 
     def write(self, outdir: str | Path, timestamp: str) -> tuple[Path, Path]:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
-        fpath, ppath = outdir / f"findings_{timestamp}.tsv", outdir / f"profile_{timestamp}.html"
+        fpath, ppath = (
+            outdir / f"findings_{timestamp}.tsv",
+            outdir / f"profile_{timestamp}.html",
+        )
         for p in (fpath, ppath):
             if p.exists():
                 raise FileExistsError(f"{p} already exists; choose a new timestamp")
         hits = self.run()
-        header = ["check", "description", "file", "spreadsheet_row", "column_letter", "column",
-                  "sample_id", "value", "note"]
+        header = [
+            "check",
+            "description",
+            "file",
+            "spreadsheet_row",
+            "column_letter",
+            "column",
+            "sample_id",
+            "value",
+            "note",
+        ]
         with open(fpath, "w", encoding="utf-8", newline="") as fh:
             fh.write("\t".join(header) + "\n")
             for h in hits:
@@ -376,23 +515,46 @@ def frictionless_errors(t) -> list[tuple[str, int | None, int | None, str]]:
     TSV is read with quoting off (quote_char is a character that never occurs),
     and every column is declared as text so nothing is type-checked."""
     if getattr(t, "_fl_errors", None) is None:
-        control = (formats.CsvControl(delimiter="\t", quote_char="\x01") if t.kind == "tsv"
-                   else formats.CsvControl())
+        control = (
+            formats.CsvControl(delimiter="\t", quote_char="\x01")
+            if t.kind == "tsv"
+            else formats.CsvControl()
+        )
         encoding = "utf-8-sig" if t.utf8 else "latin-1"
         # frictionless refuses absolute paths ("unsafe"), so open the file by name
         # from its own folder
         p = Path(t.path).resolve()
-        res = frictionless.Resource(p.name, basepath=str(p.parent), format="csv",
-                                    control=control, encoding=encoding)
+        res = frictionless.Resource(
+            p.name,
+            basepath=str(p.parent),
+            format="csv",
+            control=control,
+            encoding=encoding,
+        )
         res.infer()
-        res.schema = Schema(fields=[fl_fields.StringField(name=f.name or f"field{i + 1}")
-                                    for i, f in enumerate(res.schema.fields)])
-        report = frictionless.validate(res, limit_errors=10**7, checks=[
-            frictionless.checks.duplicate_row(), frictionless.checks.truncated_value()])
-        errors = [tuple(e) for e in report.flatten(["type", "rowNumber", "fieldNumber", "note"])]
+        res.schema = Schema(
+            fields=[
+                fl_fields.StringField(name=f.name or f"field{i + 1}")
+                for i, f in enumerate(res.schema.fields)
+            ]
+        )
+        report = frictionless.validate(
+            res,
+            limit_errors=10**7,
+            checks=[
+                frictionless.checks.duplicate_row(),
+                frictionless.checks.truncated_value(),
+            ],
+        )
+        errors = [
+            tuple(e)
+            for e in report.flatten(["type", "rowNumber", "fieldNumber", "note"])
+        ]
         failed = [e for e in errors if e[1] is None and e[2] is None]
-        if failed:   # an error about the file itself: frictionless could not check it
-            raise RuntimeError(f"frictionless could not check {t.name}: {failed[0][0]} {failed[0][3]}")
+        if failed:  # an error about the file itself: frictionless could not check it
+            raise RuntimeError(
+                f"frictionless could not check {t.name}: {failed[0][0]} {failed[0][3]}"
+            )
         t._fl_errors = errors
     return t._fl_errors
 
@@ -402,8 +564,13 @@ def _row_at(t, line):
 
 
 def _s0_ragged(t):
-    lines = sorted({row for kind, row, _, _ in frictionless_errors(t)
-                    if kind in ("missing-cell", "extra-cell") and row})
+    lines = sorted(
+        {
+            row
+            for kind, row, _, _ in frictionless_errors(t)
+            if kind in ("missing-cell", "extra-cell") and row
+        }
+    )
     for line in lines:
         r = _row_at(t, line)
         if r is not None:
@@ -417,8 +584,11 @@ def _s0_blank_rows(t):
 
 
 def _blank_label_keys(t):
-    return [t.keys[col - 1] for kind, _, col, _ in frictionless_errors(t)
-            if kind == "blank-label" and col and col <= len(t.keys)]
+    return [
+        t.keys[col - 1]
+        for kind, _, col, _ in frictionless_errors(t)
+        if kind == "blank-label" and col and col <= len(t.keys)
+    ]
 
 
 def _s0_blank_columns(t):
@@ -438,13 +608,25 @@ def _s0_quotes(t):
         return
     parsed = list(csv.reader(io.StringIO(t.text, newline=""), delimiter="\t"))[1:]
     if len(parsed) != len(t.rows):
-        yield None, None, (f"read CSV-style, the file has {len(parsed)} data rows instead of "
-                           f"{len(t.rows)}: quote characters span cells or lines")
+        yield (
+            None,
+            None,
+            (
+                f"read CSV-style, the file has {len(parsed)} data rows instead of "
+                f"{len(t.rows)}: quote characters span cells or lines"
+            ),
+        )
         return
     for r, cells in zip(t.rows, parsed):
         if len(cells) != len(r.cells):
-            yield r, None, (f"read CSV-style, this row has {len(cells)} cells instead of "
-                            f"{len(r.cells)}: a quote wraps a tab")
+            yield (
+                r,
+                None,
+                (
+                    f"read CSV-style, this row has {len(cells)} cells instead of "
+                    f"{len(r.cells)}: a quote wraps a tab"
+                ),
+            )
             continue
         for c, a, b in zip(t.keys, r.cells, cells):
             if a.rstrip("\r") != b.rstrip("\r"):
@@ -486,7 +668,11 @@ def _s1_crlf(t):
 
 
 def _s2_duplicates(t):
-    dup_cols = {col for kind, _, col, _ in frictionless_errors(t) if kind == "duplicate-label" and col}
+    dup_cols = {
+        col
+        for kind, _, col, _ in frictionless_errors(t)
+        if kind == "duplicate-label" and col
+    }
     names = {t.header[col - 1] for col in dup_cols if col <= len(t.header)}
     for c in sorted(names):
         letters = ", ".join(column_letter(i) for i, h in enumerate(t.header) if h == c)
@@ -513,9 +699,9 @@ def _pairs(t, test):
     vals = {c: t.values(c) for c in cols}
     null_only = {c for c in cols if all(is_null(v) for v in vals[c])}
     for i, a in enumerate(cols):
-        for b in cols[i + 1:]:
+        for b in cols[i + 1 :]:
             if a in null_only and b in null_only:
-                continue           # matching only because both are empty (see S3-04)
+                continue  # matching only because both are empty (see S3-04)
             note = test(vals[a], vals[b])
             if note is not None:
                 yield None, f"{a} = {b}", note
@@ -526,17 +712,25 @@ def _s3_identical(t):
 
 
 def _s3_case_only(t):
-    yield from _pairs(t, lambda x, y: "" if x != y and [v.lower() for v in x] == [v.lower() for v in y] else None)
+    yield from _pairs(
+        t,
+        lambda x, y: (
+            "" if x != y and [v.lower() for v in x] == [v.lower() for v in y] else None
+        ),
+    )
 
 
 def _s3_mostly_identical(t):
     def test(x, y):
         n = sum(a == b for a, b in zip(x, y))
         real = sum(a == b and not is_null(a) for a, b in zip(x, y))
-        if 0.95 * len(x) <= n < len(x) and real >= 0.5 * n:   # not just shared nulls
+        if 0.95 * len(x) <= n < len(x) and real >= 0.5 * n:  # not just shared nulls
             rows = [str(r.line) for r, a, b in zip(t.rows, x, y) if a != b]
-            return f"{len(x) - n} rows differ: rows {', '.join(rows[:20])}" + (" ..." if len(rows) > 20 else "")
+            return f"{len(x) - n} rows differ: rows {', '.join(rows[:20])}" + (
+                " ..." if len(rows) > 20 else ""
+            )
         return None
+
     yield from _pairs(t, test)
 
 
@@ -572,11 +766,20 @@ def _s3_pii_value(t):
             yield rows[0], c, label
         else:
             eg = ", ".join(str(r.line) for r in rows[:5])
-            yield None, c, f"{label}: {len(rows)} values, e.g. rows {eg}" + (" ..." if len(rows) > 5 else "")
+            yield (
+                None,
+                c,
+                f"{label}: {len(rows)} values, e.g. rows {eg}"
+                + (" ..." if len(rows) > 5 else ""),
+            )
 
 
 def _date_like_digits(v: str) -> bool:
-    fmts = ["%d%m%y", "%m%d%y", "%y%m%d"] if len(v) == 6 else ["%Y%m%d", "%d%m%Y", "%m%d%Y"]
+    fmts = (
+        ["%d%m%y", "%m%d%y", "%y%m%d"]
+        if len(v) == 6
+        else ["%Y%m%d", "%d%m%Y", "%m%d%Y"]
+    )
     for f in fmts:
         try:
             d = datetime.strptime(v, f)
@@ -609,14 +812,22 @@ def _date_format(v: str) -> str:
 
 def _s3_mixed_dates(t):
     for c in _date_columns(t):
-        vals = [v for v in t.values(c) if not is_null(v) and not PARTIAL_DATE.fullmatch(v.strip())]
+        vals = [
+            v
+            for v in t.values(c)
+            if not is_null(v) and not PARTIAL_DATE.fullmatch(v.strip())
+        ]
         if not vals:
             continue
         common = Counter(_date_format(v) for v in vals).most_common(1)[0][0]
         for r in t.rows:
             v = r[c]
             if v in vals and _date_format(v) != common:
-                yield r, c, f"written as {_date_format(v)}; most of the column is {common}"
+                yield (
+                    r,
+                    c,
+                    f"written as {_date_format(v)}; most of the column is {common}",
+                )
 
 
 def _s3_partial_dates(t):
@@ -645,7 +856,20 @@ def _s3_scientific(t):
     for r in t.rows:
         for c, v in r.items():
             if SCI_NOTATION.fullmatch(v.strip()):
-                yield r, c, "written in scientific notation (spreadsheet damage?): digits may have been lost"
+                yield r, c, SCI_ID_NOTE if is_label_name(c) else SCI_NOTE
+
+
+def _s3_long_text(t):
+    """One finding per distinct long value per column, at its first row."""
+    for c in t.keys:
+        where = defaultdict(list)
+        for r in t.rows:
+            v = r[c]
+            if len(v) >= LONG_TEXT_MIN_CHARS and " " in v.strip():
+                where[v].append(r)
+        for v, rows in where.items():
+            lines = ", ".join(str(r.line) for r in rows)
+            yield rows[0], c, (f"rows {lines}" if len(rows) > 1 else f"row {lines}")
 
 
 def _s3_leading_zeros(t):
@@ -654,7 +878,11 @@ def _s3_leading_zeros(t):
         if vals and sum(as_number(v) is not None for v in vals) >= 0.8 * len(vals):
             z = [v for v in vals if re.fullmatch(r"0\d+", v)]
             if z:
-                yield None, c, f"{len(z)} values have leading zeros (e.g. {z[0]}): probably not a number"
+                yield (
+                    None,
+                    c,
+                    f"{len(z)} values have leading zeros (e.g. {z[0]}): probably not a number",
+                )
 
 
 def _s3_case_variants(t):
@@ -676,15 +904,19 @@ def _s3_near_duplicates(t):
             continue
         vals = sorted(cnt)
         for i, a in enumerate(vals):
-            for b in vals[i + 1:]:
+            for b in vals[i + 1 :]:
                 if a.lower() == b.lower() or min(len(a), len(b)) < 4:
                     continue
                 if as_number(a) is not None and as_number(b) is not None:
                     continue
                 if re.sub(r"\d", "#", a) == re.sub(r"\d", "#", b):
-                    continue           # differ only in digits (Arm_2 / Arm_3)
+                    continue  # differ only in digits (Arm_2 / Arm_3)
                 if difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio() >= 0.9:
-                    yield None, c, f"{a}={cnt[a]}; {b}={cnt[b]} (typo, or genuinely different? ask)"
+                    yield (
+                        None,
+                        c,
+                        f"{a}={cnt[a]}; {b}={cnt[b]} (typo, or genuinely different? ask)",
+                    )
 
 
 def _s9_empty(t):
@@ -716,7 +948,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S0-03", "row has a different number of cells from the header", _s0_ragged),
     ("S0-04", "entirely blank row", _s0_blank_rows),
     ("S0-05", "blank column (no header, no values)", _s0_blank_columns),
-    ("S0-06", "value read differently if quotes are treated CSV-style (TSV)", _s0_quotes),
+    (
+        "S0-06",
+        "value read differently if quotes are treated CSV-style (TSV)",
+        _s0_quotes,
+    ),
     ("S0-07", "row repeats an earlier row exactly", _s0_duplicate_rows),
     ("S1-01", "tab or line break inside a cell", _s1_breaks),
     ("S1-02", "leading, trailing or doubled spaces", _s1_spaces),
@@ -731,7 +967,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S3-05", "column name suggests PII or PHI", _s3_pii_name),
     ("S3-06", "value pattern suggests PII or PHI", _s3_pii_value),
     ("S3-07", "value looks like a gene name converted to a date", _s3_gene_dates),
-    ("S3-08", "date/time in a different format from most of its column", _s3_mixed_dates),
+    (
+        "S3-08",
+        "date/time in a different format from most of its column",
+        _s3_mixed_dates,
+    ),
     ("S3-09", "date after the as-of date", _across_tables),
     ("S3-10", "partial date (year or year-month only)", _s3_partial_dates),
     ("S3-11", "round-number heaping in a numeric column", _s3_heaping),
@@ -741,6 +981,12 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S3-15", "sample ID not unique (all tables)", _across_tables),
     ("S3-16", "number written in scientific notation", _s3_scientific),
     ("S3-17", "value may have been cut off at a length limit", _s3_truncated),
+    ("S3-18", "long free-text value: read it for PII/PHI", _s3_long_text),
+    (
+        "S3-19",
+        "batch written differently from the other batches (all tables)",
+        _across_tables,
+    ),
 ]
 
 
@@ -755,7 +1001,73 @@ def _future(run: CheckRun):
                     yield t, r, c, f"after {run.as_of}"
 
 
-CROSS_TABLE = {"S3-09": _future, "S3-15": _dup_ids}
+def loose_shape(v: str) -> str:
+    """shape() with each run of digits or letters counted once, so 9 and 10,
+    or S1 and S10, are written alike."""
+    return re.sub(r"a+", "a", re.sub(r"9+", "9", shape(v)))
+
+
+def _batches(run: CheckRun):
+    """(label, rows) for every batch: each input file when there are several,
+    and each non-null value of each batch column across all files."""
+    if len(run.tables) > 1:
+        for t in run.tables:
+            yield ("file", t.name), [(t, r) for r in t.rows]
+    for col in run.batch_columns:
+        groups = defaultdict(list)
+        for t in run.tables:
+            for r in t.rows:
+                if col in t.index and not is_null(r[col]):
+                    groups[r[col]].append((t, r))
+        for value, members in groups.items():
+            yield (col, value), members
+
+
+def _batch_shapes(run: CheckRun):
+    batches = list(_batches(run))
+    columns = sorted(
+        {c for t in run.tables for c in t.keys}, key=lambda c: (c != run.sample_id, c)
+    )
+    for c in columns:
+        # Shapes of this column's values in each batch, nulls left out
+        shapes = []
+        for (kind, label), members in batches:
+            vals = [r[c] for _, r in members if c in r and not is_null(r[c])]
+            shapes.append({loose_shape(v) for v in vals} if c != kind else set())
+        # The usual shapes of each kind of batch are those most of its batches use
+        usual = {}
+        for kind in {k for (k, _), _ in batches}:
+            used = [
+                shapes[j]
+                for j, ((k, _), _) in enumerate(batches)
+                if k == kind and shapes[j]
+            ]
+            counts = Counter(x for sh in used for x in sh)
+            usual[kind] = {x for x, n in counts.items() if n > len(used) / 2}
+        for i, ((kind, label), members) in enumerate(batches):
+            mine = shapes[i]
+            n_vals = sum(1 for _, r in members if c in r and not is_null(r[c]))
+            common = usual[kind]
+            if (
+                n_vals < 2
+                or not common
+                or len(common) > MAX_USUAL_SHAPES
+                or mine & common
+            ):
+                continue
+            t0 = members[0][0]
+            lines = [r.line for _, r in members]
+            example = next(r[c] for _, r in members if c in r and not is_null(r[c]))
+            where = f"{kind} {label} (rows {min(lines)}-{max(lines)})"
+            yield (
+                t0,
+                None,
+                c,
+                f"{where}: written like {example!r}, unlike most other {kind} batches",
+            )
+
+
+CROSS_TABLE = {"S3-09": _future, "S3-15": _dup_ids, "S3-19": _batch_shapes}
 
 
 # ---------------------------------------------------------------------------
@@ -781,27 +1093,45 @@ def render_profile(run: CheckRun) -> str:
     for t in run.tables:
         groups[tuple(t.header)].append(t)
     e = html.escape
-    out = ["<!doctype html><html><head><meta charset='utf-8'><title>Column profile</title>",
-           f"<style>{CSS}</style></head><body><h1>Column profile</h1>"]
+    out = [
+        "<!doctype html><html><head><meta charset='utf-8'><title>Column profile</title>",
+        f"<style>{CSS}</style></head><body><h1>Column profile</h1>",
+    ]
     for gi, (header, tables) in enumerate(groups.items(), start=1):
         rows = [r for t in tables for r in t.rows]
-        out.append(f"<h2>{'Tables' if len(tables) > 1 else 'Table'}: "
-                   f"{len(tables)} file{'s' if len(tables) > 1 else ''}, {len(rows)} rows, "
-                   f"{len(header)} columns</h2>")
-        out.append("<table class='freq'><tr><td><b>File</b></td><td><b>Rows</b></td></tr>" +
-                   "".join(f"<tr><td>{e(t.name)}</td><td>{len(t.rows)}</td></tr>" for t in tables) +
-                   "</table>")
-        out.append("<p class='toc'>" + " ".join(
-            f"<a href='#g{gi}c{i}'>{e(c) or '(no name)'}</a>" for i, c in enumerate(header)) + "</p>")
+        out.append(
+            f"<h2>{'Tables' if len(tables) > 1 else 'Table'}: "
+            f"{len(tables)} file{'s' if len(tables) > 1 else ''}, {len(rows)} rows, "
+            f"{len(header)} columns</h2>"
+        )
+        out.append(
+            "<table class='freq'><tr><td><b>File</b></td><td><b>Rows</b></td></tr>"
+            + "".join(
+                f"<tr><td>{e(t.name)}</td><td>{len(t.rows)}</td></tr>" for t in tables
+            )
+            + "</table>"
+        )
+        out.append(
+            "<p class='toc'>"
+            + " ".join(
+                f"<a href='#g{gi}c{i}'>{e(c) or '(no name)'}</a>"
+                for i, c in enumerate(header)
+            )
+            + "</p>"
+        )
         keys = tables[0].keys
         for i, (c, k) in enumerate(zip(header, keys)):
             vals = [r.get(k, "") for r in rows]
-            out.append(_column_card(f"g{gi}c{i}", column_letter(i), c, vals, run.kinds.get(k)))
+            out.append(
+                _column_card(f"g{gi}c{i}", column_letter(i), c, vals, run.kinds.get(k))
+            )
     out.append("</body></html>")
     return "\n".join(out)
 
 
-def _column_card(anchor: str, letter: str, name: str, vals: list[str], set_kind: str | None) -> str:
+def _column_card(
+    anchor: str, letter: str, name: str, vals: list[str], set_kind: str | None
+) -> str:
     e = html.escape
     cnt = Counter(vals)
     filled = sum(n for v, n in cnt.items() if v != "")
@@ -814,35 +1144,53 @@ def _column_card(anchor: str, letter: str, name: str, vals: list[str], set_kind:
             kind = "categorical (numbers)"
     else:
         kind, label = column_kind(vals, name), "guess"
-    parts = [f"<div class='col' id='{anchor}'><h3>{letter}: {e(name) or '(no name)'}</h3>",
-             f"<div class='meta'>{label}: <b>{kind}</b> &middot; "
-             f"filled {filled} &middot; empty {cnt.get('', 0)} &middot; null terms {nulls} "
-             f"&middot; distinct {len(cnt)}</div>"]
+    parts = [
+        f"<div class='col' id='{anchor}'><h3>{letter}: {e(name) or '(no name)'}</h3>",
+        f"<div class='meta'>{label}: <b>{kind}</b> &middot; "
+        f"filled {filled} &middot; empty {cnt.get('', 0)} &middot; null terms {nulls} "
+        f"&middot; distinct {len(cnt)}</div>",
+    ]
     if kind == "numeric" and len(set(nums)) > 1:
-        parts.append(f"<div class='meta'>{len(nums)} numbers: min {_fmt(min(nums))} &middot; "
-                     f"max {_fmt(max(nums))} &middot; mean {_fmt(statistics.mean(nums))} &middot; "
-                     f"median {_fmt(statistics.median(nums))}</div>")
+        parts.append(
+            f"<div class='meta'>{len(nums)} numbers: min {_fmt(min(nums))} &middot; "
+            f"max {_fmt(max(nums))} &middot; mean {_fmt(statistics.mean(nums))} &middot; "
+            f"median {_fmt(statistics.median(nums))}</div>"
+        )
         parts.append(_histogram(nums))
     dates = sorted(d for d in (parse_date(v)[0] for v in non_null) if d)
     if dates and len(dates) >= 0.8 * len(non_null):
-        parts.append(f"<div class='meta'>{len(dates)} dates: earliest {dates[0]:%Y-%m-%d} &middot; "
-                     f"latest {dates[-1]:%Y-%m-%d}</div>")
+        parts.append(
+            f"<div class='meta'>{len(dates)} dates: earliest {dates[0]:%Y-%m-%d} &middot; "
+            f"latest {dates[-1]:%Y-%m-%d}</div>"
+        )
     if len(cnt) <= 50 or (set_kind and kind.startswith("categorical")):
         items = cnt.most_common()
-        if kind == "categorical (numbers)":   # in order of value, like a histogram of the actual values
-            items = sorted(items, key=lambda vn: (as_number(vn[0]) is None, as_number(vn[0]) or 0, vn[0]))
+        if (
+            kind == "categorical (numbers)"
+        ):  # in order of value, like a histogram of the actual values
+            items = sorted(
+                items,
+                key=lambda vn: (as_number(vn[0]) is None, as_number(vn[0]) or 0, vn[0]),
+            )
         parts.append(_freq_table(items[:200]))
         if len(items) > 200:
-            parts.append(f"<div class='meta'>... and {len(items) - 200} more distinct values</div>")
+            parts.append(
+                f"<div class='meta'>... and {len(items) - 200} more distinct values</div>"
+            )
     else:
-        nulls_shown = [(v, n) for v, n in cnt.most_common() if v == "" or v in NULL_TERMS]
+        nulls_shown = [
+            (v, n) for v, n in cnt.most_common() if v == "" or v in NULL_TERMS
+        ]
         if nulls_shown:
             parts.append(_freq_table(nulls_shown))
         step = max(1, len(non_null) // 10)
         examples = non_null[::step][:10]
-        parts.append(f"<div class='meta'>{len(cnt)} distinct values; {len(examples)} examples "
-                     f"from throughout the column:</div><div class='meta'>" +
-                     " &middot; ".join(f"<code>{e(v)}</code>" for v in examples) + "</div>")
+        parts.append(
+            f"<div class='meta'>{len(cnt)} distinct values; {len(examples)} examples "
+            f"from throughout the column:</div><div class='meta'>"
+            + " &middot; ".join(f"<code>{e(v)}</code>" for v in examples)
+            + "</div>"
+        )
     parts.append("</div>")
     return "\n".join(parts)
 
@@ -853,8 +1201,10 @@ def _freq_table(items: list[tuple[str, int]]) -> str:
     rows = []
     for v, n in items:
         label = e(v) if v != "" else "<i>(empty)</i>"
-        rows.append(f"<tr><td>{n}</td><td><span class='bar' style='width:{max(1, round(160 * n / top))}px'>"
-                    f"</span></td><td class='v' title='{e(v)}'>{label}</td></tr>")
+        rows.append(
+            f"<tr><td>{n}</td><td><span class='bar' style='width:{max(1, round(160 * n / top))}px'>"
+            f"</span></td><td class='v' title='{e(v)}'>{label}</td></tr>"
+        )
     return "<table class='freq'>" + "".join(rows) + "</table>"
 
 
@@ -865,7 +1215,10 @@ def _histogram(nums: list[float], bins: int = 10) -> str:
     for x in nums:
         counts[min(bins - 1, int((x - lo) / width))] += 1
     top = max(counts)
-    bars = "".join(f"<div style='height:{max(1, round(60 * n / top))}px' title='{n}'></div>" for n in counts)
+    bars = "".join(
+        f"<div style='height:{max(1, round(60 * n / top))}px' title='{n}'></div>"
+        for n in counts
+    )
     labels = "".join(f"<span>{_fmt(lo + k * width)}</span>" for k in range(bins))
     return f"<div class='hist'>{bars}</div><div class='hlab'>{labels}</div>"
 
