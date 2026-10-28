@@ -28,6 +28,18 @@ output files (SKILL.md, Phase 2).
 There is one check script, `check_script.py`, which you edit in place when a
 check is added.
 
+## The PII-only run
+
+At the start of every session (SKILL.md, Phase 0), run only the PII checks
+(S3-05, S3-06), with no check script:
+
+    uv run <skill>/scripts/metadata_profile.py --pii FILE... --sample-id ID \
+        --out OUTDIR --timestamp TIMESTAMP
+
+It writes only a findings file, so no other output shows the values it is
+looking for. If you don't yet know which column holds the sample IDs, ask
+the scientist.
+
 ## Reading and writing files
 
 `metadata_profile.py` reads files with the cleanup template's own reader, so
@@ -61,16 +73,15 @@ Each run writes three new files, named with the run's timestamp:
   that finds nothing still gets one row saying so, so "checked, nothing
   found" can be told apart from "not checked". The S3-18 rows are not
   problems: one per column, they say how to cover its values in the
-  judgment review (`table_checks.md`). In every row, a value or note in a
-  cell that the PII checks (S3-05, S3-06) cover is hidden, so PII the code
-  found is not read.
+  judgment review (`table_checks.md`). The PII checks' rows (S3-05, S3-06)
+  never show the value.
 - **Review** (`review_<timestamp>.tsv`), for you: the values for the
   judgment review, one line per distinct value of each column, with its
-  slice number, file, column letter, column, count and first rows. PII the
-  code found is left out.
+  slice number, file, column letter, column, count and first rows.
 
 ## When to run it
 
+- at the start of every session, as the PII-only run;
 - after the study discussion (or at the start, if there is none), before
   discussing any finding;
 - whenever a check is added;

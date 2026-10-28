@@ -39,6 +39,10 @@ Give the script's summary, say which decision it shows, and point out
 anything unusual, such as cells changed that the latest decision shouldn't
 have touched (the change list says which decision changed each cell).
 
+For a decision that removes PII, give only the script's printed summary:
+don't open the change list or the diff page, since both show the removed
+value. The scientist checks the diff page themselves.
+
 ## Known gap
 
 The page shows the sample ID but not the spreadsheet row number or column

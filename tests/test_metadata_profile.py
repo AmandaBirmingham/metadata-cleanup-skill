@@ -651,7 +651,8 @@ def test_review_lines_list_every_value_and_shorten_row_lists(write):
     )
 
 
-def test_review_lines_leave_out_pii(write):
+def test_review_lines_include_pii_pattern_values(write):
+    # PII is removed before review, so what is left (confirmed not PII) is read
     rows = [
         ["sample_name", "notes", "dob"],
         ["S1", "call 858-534-2230", "1984-03-12"],
@@ -659,8 +660,8 @@ def test_review_lines_leave_out_pii(write):
     ]
     p = write("t.tsv", rows)
     assert (review_lines([p], "notes"), review_lines([p], "dob")) == (
-        [("fine", "1", "3")],
-        [],
+        [("call 858-534-2230", "1", "2"), ("fine", "1", "3")],
+        [("1984-03-12", "1", "2"), ("1990-01-01", "1", "3")],
     )
 
 
@@ -718,28 +719,59 @@ def test_s3_18_coverage_advice(write, monkeypatch, direct, max_slices, advice):
 
 
 # ---------------------------------------------------------------------------
-# PII the code found is hidden from every finding
+# PII checks: their findings never show values; they can run alone
 # ---------------------------------------------------------------------------
-def test__finding_hides_pii_named_column(write):
-    p = write("t.tsv", [["sample_name", "dob"], ["S1", "1984-03-12 "]])
-    found = [h[3:9] for h in hits([p], "S1-02") + hits([p], "S3-05")]
-    assert found == [
-        ("2", "B", "dob", "S1", "", mp.PII_HIDDEN),
-        ("", "B", "dob", "", "", "column name suggests PII or PHI (see pii.md)"),
-    ]
-
-
-def test__finding_hides_pii_matched_cell(write):
+def test__finding_pii_checks_show_no_value(write):
     p = write(
         "t.tsv",
         [["sample_name", "notes"], ["S1", "call 858-534-2230 "], ["S2", "fine "]],
     )
     found = [h[3:9] for h in hits([p], "S1-02") + hits([p], "S3-06")]
     assert found == [
-        ("2", "B", "notes", "S1", "", mp.PII_HIDDEN),
+        ("2", "B", "notes", "S1", "call 858-534-2230 ", ""),
         ("3", "B", "notes", "S2", "fine ", ""),
         ("2", "B", "notes", "S1", "", "phone number pattern"),
     ]
+
+
+def test_pii_checks(write):
+    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run.pii_checks()
+    assert [c[0] for c in run.checks] == list(mp.PII_CHECKS)
+
+
+def test_write_findings(write, tmp_path):
+    p = write("t.tsv", [["sample_name", "dob"], ["S1", "1984-03-12"]])
+    run = CheckRun([str(p)], sample_id="sample_name")
+    run.pii_checks()
+    out = tmp_path / "out"
+    f = run.write_findings(out, "t1")
+    assert (sorted(x.name for x in out.iterdir()), f) == (
+        ["findings_t1.tsv"],
+        out / "findings_t1.tsv",
+    )
+    with pytest.raises(FileExistsError):
+        run.write_findings(out, "t1")
+
+
+def test_main_pii_only(write, tmp_path):
+    p = write(
+        "t.tsv",
+        [["sample_name", "phone", "notes"], ["S1", "x", "mail a@b.org"]],
+    )
+    out = tmp_path / "out"
+    argv = ["--pii", str(p), "--sample-id", "sample_name"]
+    argv += ["--out", str(out), "--timestamp", "t1"]
+    assert mp.main(argv) == 0
+    lines = (out / "findings_t1.tsv").read_text().splitlines()
+    found = [tuple(x.split("\t")[i] for i in (0, 5, 7, 8)) for x in lines[1:]]
+    assert (sorted(x.name for x in out.iterdir()), found) == (
+        ["findings_t1.tsv"],
+        [
+            ("S3-05", "phone", "", "column name suggests PII or PHI (see pii.md)"),
+            ("S3-06", "notes", "", "email address"),
+        ],
+    )
 
 
 def batch_rows(odd_dates=True):

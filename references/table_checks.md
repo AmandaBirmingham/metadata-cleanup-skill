@@ -15,9 +15,9 @@ tables differ.
 Coded checks find only what fixed rules can describe. After every check run,
 before triage, read every value in the review file
 (`review_<timestamp>.tsv`): one line per distinct value of each column, with
-its count and first rows. It leaves out empty cells, ENA null terms, numbers
-in numeric columns and anything the code's PII checks found. Every other
-value must be read. For each value, ask:
+its count and first rows. It leaves out empty cells, ENA null terms and
+numbers in numeric columns. Every other value must be read. For each value,
+ask:
 
 - Could it identify a person, alone or with other values (see `pii.md`)?
 - Was it meant as a missing value (`unknwn`, `-`, `nicht angegeben`), and so
@@ -35,8 +35,9 @@ value must be read. For each value, ask:
 `pii.md` and the two asset files are references, not checklists: flag
 anything that looks wrong, whether or not it matches a listed pattern. Each
 problem you find joins the findings for triage, cited by its review-file
-line. To list every row of a value (a line shows only the first few), add a
-study-specific check for it and rerun.
+line, except possible PII: stop the review and raise it at once (SKILL.md,
+rule 12). To list every row of a value (a line shows only the first few),
+add a study-specific check for it and rerun.
 
 ### Covering every value
 

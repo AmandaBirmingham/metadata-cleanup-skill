@@ -79,12 +79,21 @@ themselves instead of handing it to repository staff.
     finds what fixed rules can find; possible PII, values meant as missing,
     and many other problems also need your judgment, so read the values for
     them on every run (see "Judgment review" in `references/table_checks.md`).
-    The code's PII checks run first, and what they find is hidden from you.
     Only checking uses judgment: every change is still code (rule 5).
+12. **PII is removed before review, not read.** Every session starts with
+    Phase 0, and no other review begins until each of its findings is
+    resolved; no PII may be kept. If you find possible PII later, by
+    judgment, stop and raise it at once. If the scientist confirms it is
+    PII, advise that removing it be the session's last decision, followed by
+    delivery (Phase 5), and that a new session start from those outputs,
+    because otherwise the PII stays in the files you keep reading. You
+    cannot enforce this; explain why, and let them choose.
 
 ## Starting a session
 
-Work out which situation applies:
+Work out which situation applies. Whichever it is, Phase 0 comes first once
+there is a file, including when the files are the outputs of an earlier
+session that removed PII; then bring that session's decision log too.
 
 - **New study, no file yet:** start with the study discussion.
 - **New study, file in hand:** do the study discussion briefly first (it decides
@@ -125,6 +134,27 @@ Every output, the decision log and the skill-feedback notes go there.
 Work through these phases in order. New or corrected files can arrive at any
 point; when they do, follow "New or replacement input files" in
 `references/cleanup_script.md`, then redo the later phases.
+
+### Phase 0 — PII
+
+Before reading any value in the files, run only the PII checks on the
+original files (see "The PII-only run" in `references/check_script.md`).
+Their findings give each place PII may be and the pattern it matched, never
+the value. Bring each one to the scientist with its location, so they can
+look in their own copy, and record how they resolve it (see
+`references/pii.md`):
+
+- **not PII:** a decision that changes no data; it is asked again in each
+  later session, since the check finds the value again;
+- **removed:** a decision carried out by the cleanup script, emptying or
+  replacing the cell, deleting the column, or setting the cell to text the
+  scientist supplies. Never propose replacement text yourself: that means
+  reading the value. Show the change as `references/diff_view.md` says for
+  a removal of PII.
+
+If anything was removed, deliver as in Phase 5 and end the session; the
+scientist starts a new session with the corrected files as its input files.
+If nothing was removed, go on to Phase 1.
 
 ### Phase 1 — Study discussion
 

@@ -28,6 +28,11 @@ with quoting off and every column read as text.
 
     run.write("outputs", "20261022-101500")   # profile, findings and review files
 
+Before any review, run only the PII checks, writing only the findings file:
+
+    uv run metadata_profile.py --pii batch1.tsv batch2.tsv --sample-id sample_name \
+        --out outputs --timestamp 20261022-101500
+
 A check is a function of one table that yields hits:
     (row, column)             a value in one cell
     (row, column, note)
@@ -42,11 +47,13 @@ converted. pandas is in the dependency block because that module imports it.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import html
 import io
 import re
 import statistics
+import sys
 from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal
@@ -151,8 +158,8 @@ REVIEW_MAX_SLICES = 50
 REVIEW_ROWS_SHOWN = 10
 # Values compared at once by S3-14, bounding its memory use
 FUZZY_BLOCK = 200
-# Shown in a finding in place of a value or note that may hold PII or PHI
-PII_HIDDEN = "(hidden: possible PII or PHI)"
+# The PII checks: run alone before any review; their findings never show values
+PII_CHECKS = ("S3-05", "S3-06")
 # A column counts as regularly written when other batches use at most this many shapes
 MAX_USUAL_SHAPES = 5
 
@@ -337,6 +344,12 @@ class CheckRun:
         for cid, description, fn in GENERIC_CHECKS:
             self.add(cid, description, fn)
 
+    def pii_checks(self) -> None:
+        """Register only the PII checks, for the run before any review."""
+        for cid, description, fn in GENERIC_CHECKS:
+            if cid in PII_CHECKS:
+                self.add(cid, description, fn)
+
     def range_check(
         self,
         column: str,
@@ -421,11 +434,9 @@ class CheckRun:
         value = (
             row.get(column, "") if (row is not None and column in (row or {})) else ""
         )
-        # Hide what the PII checks found; their own notes name only the pattern
-        if any(_pii_covered(t, row, c) for c in cols):
+        # A PII finding names only the pattern, never the value
+        if cid in PII_CHECKS:
             value = ""
-            if cid not in ("S3-05", "S3-06"):
-                note = PII_HIDDEN
         sample = row.get(self.sample_id, "") if row is not None else ""
         return (
             cid,
@@ -450,6 +461,28 @@ class CheckRun:
         for p in (fpath, ppath, rpath):
             if p.exists():
                 raise FileExistsError(f"{p} already exists; choose a new timestamp")
+        self.write_findings(outdir, timestamp)
+        review_header = [
+            "slice",
+            "file",
+            "column_letter",
+            "column",
+            "value",
+            "count",
+            "rows",
+        ]
+        _write_tsv(rpath, review_header, self.review_lines())
+        ppath.write_text(render_profile(self), encoding="utf-8")
+        print(f"-> {ppath}\n-> {rpath}")
+        return fpath, ppath, rpath
+
+    def write_findings(self, outdir: str | Path, timestamp: str) -> Path:
+        """Write only the findings file; refuses to overwrite it."""
+        outdir = Path(outdir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        fpath = outdir / f"findings_{timestamp}.tsv"
+        if fpath.exists():
+            raise FileExistsError(f"{fpath} already exists; choose a new timestamp")
         hits = self.run()
         header = [
             "check",
@@ -463,22 +496,12 @@ class CheckRun:
             "note",
         ]
         _write_tsv(fpath, header, hits)
-        review_header = [
-            "slice",
-            "file",
-            "column_letter",
-            "column",
-            "value",
-            "count",
-            "rows",
-        ]
-        _write_tsv(rpath, review_header, self.review_lines())
-        ppath.write_text(render_profile(self), encoding="utf-8")
+        # Report each check's count of findings
         counts = Counter(h[0] for h in hits if h[8] != "no findings")
         for cid, description, _ in self.checks:
             print(f"{cid}\t{counts.get(cid, 0)}\t{description}")
-        print(f"-> {fpath}\n-> {ppath}\n-> {rpath}")
-        return fpath, ppath, rpath
+        print(f"-> {fpath}")
+        return fpath
 
 
 def _write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
@@ -751,16 +774,6 @@ def _pii_label(v: str) -> str | None:
     return None
 
 
-def _pii_covered(t, row, column: str) -> bool:
-    """True for a column whose name suggests PII (S3-05), or a cell whose value
-    matches a PII pattern (S3-06)."""
-    if column not in t.index:
-        return False
-    if PII_COLUMN.search(t.header[t.index[column]]):
-        return True
-    return row is not None and _pii_label(row.get(column, "")) is not None
-
-
 def _s3_pii_value(t):
     """One finding per column and pattern, with the count and example rows."""
     found = defaultdict(list)
@@ -870,12 +883,12 @@ def _s3_scientific(t):
 def _review_values(t, name: str, c: str) -> dict[str, list]:
     """Each distinct value of a column with its rows, in order of first
     appearance, for the judgment review. Leaves out empty cells, ENA null
-    terms, PII the code found and, in numeric columns, numbers."""
+    terms and, in numeric columns, numbers."""
     kind = t.kinds.get(c) or column_kind(t.values(c), name)
     where = defaultdict(list)
     for r in t.rows:
         v = r[c]
-        if is_null(v) or _pii_covered(t, r, c):
+        if is_null(v):
             continue
         if kind == "numeric" and as_number(v) is not None:
             continue
@@ -1280,3 +1293,25 @@ def _fmt(x: float) -> str:
     if x == int(x) and abs(x) < 1e15:
         return str(int(x))
     return format(Decimal(f"{x:.4g}"), "f")
+
+
+# ---------------------------------------------------------------------------
+# Command line: the PII-only run
+# ---------------------------------------------------------------------------
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        description="Run only the PII checks and write only the findings file."
+    )
+    ap.add_argument("--pii", nargs="+", required=True, metavar="FILE")
+    ap.add_argument("--sample-id", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--timestamp", required=True)
+    a = ap.parse_args(argv)
+    run = CheckRun(a.pii, sample_id=a.sample_id)
+    run.pii_checks()
+    run.write_findings(a.out, a.timestamp)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
