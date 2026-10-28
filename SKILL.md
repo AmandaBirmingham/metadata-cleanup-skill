@@ -194,13 +194,18 @@ both in `references/table_checks.md`. From the first run, also compare the sampl
 the Phase 1 estimates, using a count check written for the study, and raise a
 large gap early, as possible missing data.
 
+If any run's S3-20 rows say "too large: stop", stop: tell the scientist that
+their study has too many rows and columns for every row to be read, which
+this skill requires, and do no further work on it.
+
 Then work through the stages in `references/table_checks.md` with the
 scientist, using its findings: 0 sanity checks, 1 string cleaning, 2 headers,
 3 profiling, 4 categorical values, 5 cross-field consistency, 6 formatting.
 
 Present the problems in plain language, a few at a time, in triage order.
 Give the location of every value a problem concerns, as the findings file
-records it, so the scientist can find it in their own copy. Each
+records it, so the scientist can find it in their own copy; for a problem
+found by reading a draft output's rows (Stage 5), give its sample ID. Each
 answer becomes an entry in the decision log; each one that changes data is
 carried out in the cleanup script and approved as rule 4 describes.
 
@@ -313,7 +318,8 @@ it is; the script stops if any listed ID does not exist.
   - the heading has the ID (`D-001`, `D-002`, …, in order) and the date and
     time from the system clock;
   - `Finding:` is the check ID and the findings file it came from, a line
-    of a review file (`review line 412, review_20261022-101500.tsv`), or
+    of a review file (`review line 412, review_20261022-101500.tsv`), a row
+    of a draft output (`row 812, samples__draft_20261022-101500.tsv`), or
     `none`;
   - `Decided:` says what was decided, in plain words;
   - `Changes data:` is `yes` or `no`;

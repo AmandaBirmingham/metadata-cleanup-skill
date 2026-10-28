@@ -275,14 +275,22 @@ without approval):
 
 Values can each be valid yet contradict each other within one sample. This is
 common where the scientist copied subject-level information onto every sample
-by hand. Domain knowledge makes these checks far more effective, so ask the
-scientist which combinations matter in their field.
+by hand. Find these by reading every row of the latest draft output, after
+Stages 0–4 are done: rerun the check script on the draft outputs, and cover
+the rows as its S3-20 rows direct:
 
-Raise each contradiction as a question, not a correction. Show how the
-sample differs from comparable samples in the same file, offer the
-explanations you can see, and ask which applies.
+- **read directly:** read every row yourself.
+- **split across helpers:** give each slice (a range of rows of one draft
+  output) to a helper agent, with the file's header line and the questions
+  below. A helper reads only those lines and reports the slice it read and
+  each row it flags, with its row number and sample ID. Check that every
+  slice was reported. Tell the scientist first, as for the judgment review.
+- **too large: stop:** the study is too large for this skill; see SKILL.md,
+  Phase 2.
 
-Choose checks that fit this study, for example:
+For each row, ask whether every value fits the others. Domain knowledge makes
+this far more effective, so ask the scientist which combinations matter in
+their field. Combinations worth looking at include:
 
 - diagnosis and treatment pairs;
 - BMI, height and weight together;
@@ -292,8 +300,17 @@ Choose checks that fit this study, for example:
 - measured values against their stated units;
 - the same subject_id with different birth years.
 
-For each check, identify samples with **definite or possible**
-inconsistencies, and say which is which. Examples of things to flag:
+These guide the reading but do not limit it: flag anything that doesn't fit.
+Possible PII stops the review (SKILL.md, rule 12). To list every row with a
+pattern you found, add a study-specific check for it and rerun.
+
+Raise each contradiction as a question, not a correction. Show how the
+sample differs from comparable samples in the same file, offer the
+explanations you can see, and ask which applies. Give the scientist its
+sample ID, since a draft output's row numbers can differ from their copy's.
+
+For each problem, say whether the inconsistency is **definite or possible**.
+Examples of things to flag:
 
 - 5 human male samples with pregnant = True;
 - a sterile water blank with diseased = True;

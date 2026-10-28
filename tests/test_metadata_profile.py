@@ -239,10 +239,13 @@ def test_crlf_bom_and_latin1(write):
 # generic checks: each fires on a bad file and not on a clean one
 # ---------------------------------------------------------------------------
 CLEAN = [["sample_name", "a"], ["S1", "x"], ["S2", "y"]]
+# These list what the judgment review reads, so they have rows even for a clean file
+COVERAGE_CHECKS = ("S3-18", "S3-20")
 
 
-# S3-18 lists values for judgment review, so it has rows even for a clean file
-@pytest.mark.parametrize("cid", [c for c, _, _ in mp.GENERIC_CHECKS if c != "S3-18"])
+@pytest.mark.parametrize(
+    "cid", [c for c, _, _ in mp.GENERIC_CHECKS if c not in COVERAGE_CHECKS]
+)
 def test_clean_file_has_no_findings(write, cid):
     assert hits([write("clean.tsv", CLEAN)], cid, as_of="2026-10-22") == []
 
@@ -718,6 +721,34 @@ def test_s3_18_coverage_advice(write, monkeypatch, direct, max_slices, advice):
     assert [x[8].split(": ", 1)[1] for x in h] == [advice, advice]
 
 
+def test__row_summary_slices(write, monkeypatch):
+    # Each row line is 4 characters plus room for its line end and slice number
+    monkeypatch.setattr(mp, "REVIEW_SLICE_CHARS", 15)
+    monkeypatch.setattr(mp, "REVIEW_DIRECT_MAX_CHARS", 1)
+    a = write("a.tsv", [["sample_name", "a"], ["S1", "x"], ["S2", "y"], ["S3", "z"]])
+    b = write("b.tsv", [["sample_name", "a"], ["S4", "x"], ["S5", "y"]])
+    found = [(h[2], h[8]) for h in hits([a, b], "S3-20")]
+    assert found == [
+        ("a.tsv", "3 rows, rows 2-3 (slice 1), row 4 (slice 2): split across helpers"),
+        ("b.tsv", "2 rows, rows 2-3 (slice 3): split across helpers"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "direct,max_slices,advice",
+    [
+        (10_000, 50, "read directly"),
+        (1, 50, "split across helpers"),
+        (1, 0, "too large: stop"),
+    ],
+)
+def test__row_summary_advice(write, monkeypatch, direct, max_slices, advice):
+    monkeypatch.setattr(mp, "REVIEW_DIRECT_MAX_CHARS", direct)
+    monkeypatch.setattr(mp, "ROW_REVIEW_MAX_SLICES", max_slices)
+    h = hits([write("t.tsv", CLEAN)], "S3-20")
+    assert [x[8].split(": ", 1)[1] for x in h] == [advice]
+
+
 # ---------------------------------------------------------------------------
 # PII checks: their findings never show values; they can run alone
 # ---------------------------------------------------------------------------
@@ -1091,8 +1122,9 @@ def test_structural_checks_ignore_null_terms_in_number_columns(write):
     p = write("t.tsv", [["sample_name", "age"], ["S1", "45"], ["S2", "not applicable"]])
     run = CheckRun([str(p)], sample_id="sample_name")
     run.generic_checks()
-    # S3-18 lists values for judgment review, so its rows are not problems
-    found = [h for h in run.run() if h[8] != "no findings" and h[0] != "S3-18"]
+    found = [
+        h for h in run.run() if h[8] != "no findings" and h[0] not in COVERAGE_CHECKS
+    ]
     assert found == []
 
 

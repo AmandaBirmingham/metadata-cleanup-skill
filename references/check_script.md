@@ -22,8 +22,9 @@ output files (SKILL.md, Phase 2).
   sys.path.insert(0, "<skill>/scripts")
   from metadata_profile import CheckRun  # noqa: E402
   ```
-- **Study-specific part,** which you write: cross-field checks (Stage 5) and
-  anything else the study discussion calls for.
+- **Study-specific part,** which you write: checks that list every row with
+  a pattern a review found, and anything else the study discussion calls
+  for.
 
 There is one check script, `check_script.py`, which you edit in place when a
 check is added.
@@ -73,8 +74,10 @@ Each run writes three new files, named with the run's timestamp:
   that finds nothing still gets one row saying so, so "checked, nothing
   found" can be told apart from "not checked". The S3-18 rows are not
   problems: one per column, they say how to cover its values in the
-  judgment review (`table_checks.md`). The PII checks' rows (S3-05, S3-06)
-  never show the value.
+  judgment review (`table_checks.md`). The S3-20 rows are not problems
+  either: one per table, they give its rows' slices as row ranges and how
+  to cover them in the row review (Stage 5 in `table_checks.md`). The PII
+  checks' rows (S3-05, S3-06) never show the value.
 - **Review** (`review_<timestamp>.tsv`), for you: the values for the
   judgment review, one line per distinct value of each column, with its
   slice number, file, column letter, column, count and first rows.
@@ -85,6 +88,7 @@ Each run writes three new files, named with the run's timestamp:
 - after the study discussion (or at the start, if there is none), before
   discussing any finding;
 - whenever a check is added;
+- at Stage 5, on the latest draft outputs rather than the originals;
 - once at Stage 9 (final validation), on the latest draft outputs rather
   than the originals;
 - whenever the scientist asks.

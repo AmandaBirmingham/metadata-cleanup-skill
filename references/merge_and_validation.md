@@ -129,8 +129,9 @@ A last check on the merged result. Its purpose is to catch errors introduced
 during handling, not to repeat Stage 3. Run the check script on the latest
 draft outputs (the checks below are part of its generic part), and carry
 out the judgment review (`table_checks.md`) on its findings; this is what
-catches an ENA term or sample type mistyped in a decision. Then spot-check a
-few records with the scientist.
+catches an ENA term or sample type mistyped in a decision. Then read every
+row of the merged output, as at Stage 5 in `table_checks.md`, covered as its
+S3-20 row directs. Then spot-check a few records with the scientist.
 
 - No duplicate sample IDs.
 - Every required field filled for every sample.

@@ -154,6 +154,9 @@ SCI_ID_NOTE = "identifier in scientific notation: digits are lost and cannot be 
 REVIEW_DIRECT_MAX_CHARS = 60_000
 REVIEW_SLICE_CHARS = 60_000
 REVIEW_MAX_SLICES = 50
+# Row review: the rows of all tables may fill at most this many slices of
+# REVIEW_SLICE_CHARS; beyond it the study is too large. A rough first guess.
+ROW_REVIEW_MAX_SLICES = 50
 # A review-file line shows at most this many of a value's rows
 REVIEW_ROWS_SHOWN = 10
 # Values compared at once by S3-14, bounding its memory use
@@ -306,24 +309,26 @@ class CheckRun:
 
     def review_lines(self) -> list[tuple[str, ...]]:
         """The review file: (slice, file, column_letter, column, value, count, rows),
-        one line per value _review_values lists. Each column starts a new slice,
-        and a slice holds at most REVIEW_SLICE_CHARS characters."""
-        lines, slice_no = [], 0
+        one line per value _review_values lists. Each column starts a new slice."""
+        groups = []
         for t in self.tables:
             for name, c in zip(t.header, t.keys):
-                used = REVIEW_SLICE_CHARS  # so the column's first value starts a slice
+                column_fields = []
                 for v, rows in _review_values(t, name, c).items():
                     # Rows shown: the first few, then how many more
                     shown = ", ".join(str(r.line) for r in rows[:REVIEW_ROWS_SHOWN])
                     if len(rows) > REVIEW_ROWS_SHOWN:
                         shown += f" (+{len(rows) - REVIEW_ROWS_SHOWN} more)"
-                    fields = (t.name, t.letter(c), c, v, str(len(rows)), shown)
-                    # Start a new slice when this line would overfill the current one
-                    width = len("\t".join(fields)) + len(str(slice_no + 1)) + 2
-                    if used + width > REVIEW_SLICE_CHARS:
-                        slice_no, used = slice_no + 1, 0
-                    used += width
-                    lines.append((str(slice_no), *fields))
+                    column_fields.append(
+                        (t.name, t.letter(c), c, v, str(len(rows)), shown)
+                    )
+                groups.append(column_fields)
+        # Number the lines into slices, each line's width including its line end
+        widths = [[len("\t".join(f)) + 1 for f in g] for g in groups]
+        slice_nos = _assign_slices(widths)
+        lines = [
+            (str(n), *f) for g, ns in zip(groups, slice_nos) for f, n in zip(g, ns)
+        ]
         return lines
 
     # -- registering checks -------------------------------------------------
@@ -502,6 +507,36 @@ class CheckRun:
             print(f"{cid}\t{counts.get(cid, 0)}\t{description}")
         print(f"-> {fpath}")
         return fpath
+
+
+def _assign_slices(groups: list[list[int]]) -> list[list[int]]:
+    """Slice numbers (from 1) for items of the given widths in characters. Each
+    group starts a new slice, and a slice holds at most REVIEW_SLICE_CHARS,
+    allowing each item room for a slice-number column."""
+    numbered, slice_no = [], 0
+    for widths in groups:
+        used = REVIEW_SLICE_CHARS  # so the group's first item starts a slice
+        group_slices = []
+        for w in widths:
+            # Start a new slice when this item would overfill the current one
+            width = w + len(str(slice_no + 1)) + 1
+            if used + width > REVIEW_SLICE_CHARS:
+                slice_no, used = slice_no + 1, 0
+            used += width
+            group_slices.append(slice_no)
+        numbered.append(group_slices)
+    return numbered
+
+
+def _coverage_advice(
+    total_chars: int, slices_needed: int, max_slices: int, too_large: str
+) -> str:
+    """How to cover a review: read directly, split across helpers, or too_large."""
+    if total_chars <= REVIEW_DIRECT_MAX_CHARS:
+        return "read directly"
+    if slices_needed > max_slices:
+        return too_large
+    return "split across helpers"
 
 
 def _write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
@@ -1026,6 +1061,7 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
         "batch written differently from the other batches (all tables)",
         _across_tables,
     ),
+    ("S3-20", "rows to read in the row review, per table", _across_tables),
 ]
 
 
@@ -1039,15 +1075,35 @@ def _review_summary(run: CheckRun):
     tables = {t.name: t for t in run.tables}
     for (file, c), nums in slices.items():
         first, last = nums[0], nums[-1]
-        if total <= REVIEW_DIRECT_MAX_CHARS:
-            advice = "read directly"
-        elif last - first + 1 > REVIEW_MAX_SLICES:
-            advice = "too large: fallback"
-        else:
-            advice = "split across helpers"
+        advice = _coverage_advice(
+            total, last - first + 1, REVIEW_MAX_SLICES, "too large: fallback"
+        )
         where = f"slice {first}" if first == last else f"slices {first}-{last}"
         note = f"{len(nums)} values in the review file, {where}: {advice}"
         yield tables[file], None, c, note
+
+
+def _row_summary(run: CheckRun):
+    """One row per table: its rows' slices, as row ranges, and coverage."""
+    # Slice every table's rows, each row's width as written in a TSV line
+    widths = [[len("\t".join(r.cells)) + 1 for r in t.rows] for t in run.tables]
+    slice_nos = _assign_slices(widths)
+    total = sum(sum(w) for w in widths)
+    slices_needed = max((n for ns in slice_nos for n in ns), default=0)
+    advice = _coverage_advice(
+        total, slices_needed, ROW_REVIEW_MAX_SLICES, "too large: stop"
+    )
+    for t, ns in zip(run.tables, slice_nos):
+        # Each slice's first and last spreadsheet rows
+        ranges = defaultdict(list)
+        for r, n in zip(t.rows, ns):
+            ranges[n].append(r.line)
+        parts = [
+            f"row {lines[0]}" if len(lines) == 1 else f"rows {lines[0]}-{lines[-1]}"
+            for lines in ranges.values()
+        ]
+        where = "".join(f", {p} (slice {n})" for p, n in zip(parts, ranges))
+        yield t, None, None, f"{len(t.rows)} rows{where}: {advice}"
 
 
 def _future(run: CheckRun):
@@ -1132,6 +1188,7 @@ CROSS_TABLE = {
     "S3-15": _dup_ids,
     "S3-18": _review_summary,
     "S3-19": _batch_shapes,
+    "S3-20": _row_summary,
 }
 
 
