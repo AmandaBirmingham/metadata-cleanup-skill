@@ -62,7 +62,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 
 import frictionless
 import frictionless.formats
@@ -73,9 +73,9 @@ from cleanup_template import (
     Stop,  # noqa: F401  (re-exported: the reader raises it)
     column_letter,
     display_name,
-    one_line,
     read_file,
     unique_column_names,
+    write_tsv,
 )
 
 NULL_TERMS_FILE = (
@@ -171,10 +171,32 @@ PII_CHECKS = ("S3-05", "S3-06")
 MAX_USUAL_SHAPES = 5
 # Column-pair checks (S3-01 to S3-03) are skipped above this many named columns
 MAX_PAIR_COLUMNS = 300
+# The note of a check that found nothing
+NO_FINDINGS = "no findings"
 # The note of a check that could not run, so it is never read as "no findings"
 NOT_CHECKED = "not checked: {}"
+NOT_CHECKED_PREFIX = NOT_CHECKED.format("")
 # The form of a run's timestamp, from which the as-of date defaults
 RUN_TIMESTAMP = "%Y%m%d-%H%M%S"
+# Column kind guesses: a column with at most this many distinct values, or
+# distinct values making up at most this share of its values, is categorical
+CATEGORICAL_MAX_DISTINCT = 20
+CATEGORICAL_MAX_SHARE = 0.05
+# The share of a column's values that must read as numbers (or dates) for
+# the column to count as numeric (or dates)
+MOSTLY_SHARE = 0.9
+FINDINGS_COLUMNS = [
+    "check",
+    "description",
+    "file",
+    "spreadsheet_row",
+    "column_letter",
+    "column",
+    "sample_id",
+    "value",
+    "note",
+]
+REVIEW_COLUMNS = ["slice", "file", "column_letter", "column", "value", "count", "rows"]
 
 
 # ---------------------------------------------------------------------------
@@ -213,6 +235,12 @@ class Table:
     def values(self, column: str) -> list[str]:
         return [r.get(column, "") for r in self.rows]
 
+    def cells(self) -> Iterator[tuple[Row, str, str]]:
+        """Every cell as (row, column, value), row by row."""
+        for r in self.rows:
+            for c, v in r.items():
+                yield r, c, v
+
 
 # ---------------------------------------------------------------------------
 # Value helpers
@@ -237,8 +265,20 @@ def parse_date(v: str):
     return None, None
 
 
+def _row_list(lines: list, limit: int) -> str:
+    """The first limit row numbers, then how many more."""
+    shown = ", ".join(str(line) for line in lines[:limit])
+    if len(lines) > limit:
+        shown += f" (+{len(lines) - limit} more)"
+    return shown
+
+
 def shape(v: str) -> str:
     return re.sub(r"[A-Za-z]", "a", re.sub(r"\d", "9", v))
+
+
+def _few_distinct(distinct: int, n: int) -> bool:
+    return distinct <= CATEGORICAL_MAX_DISTINCT or distinct <= CATEGORICAL_MAX_SHARE * n
 
 
 def column_kind(values: list[str], name: str = "") -> str:
@@ -248,20 +288,20 @@ def column_kind(values: list[str], name: str = "") -> str:
     if not vals:
         return "empty or null only"
     n, distinct = len(vals), len(set(vals))
-    numeric = sum(as_number(v) is not None for v in vals) >= 0.9 * n
+    numeric = sum(as_number(v) is not None for v in vals) >= MOSTLY_SHARE * n
     if is_label_name(name):
-        if distinct <= 20 or distinct <= 0.05 * n:
+        if _few_distinct(distinct, n):
             return "categorical (numbers)" if numeric else "categorical"
         return "identifier"
     if numeric:
         return (
             "categorical (numbers)"
-            if distinct <= 20 and n >= 2 * distinct
+            if distinct <= CATEGORICAL_MAX_DISTINCT and n >= 2 * distinct
             else "numeric"
         )
-    if sum(parse_date(v)[0] is not None for v in vals) >= 0.9 * n:
+    if sum(parse_date(v)[0] is not None for v in vals) >= MOSTLY_SHARE * n:
         return "date/time"
-    if distinct <= 20 or distinct <= 0.05 * n:
+    if _few_distinct(distinct, n):
         return "categorical"
     if max(len(v) for v in vals) <= 40 and not any(" " in v for v in vals[:200]):
         return "identifier"
@@ -300,13 +340,12 @@ class CheckRun:
         self.fallback_columns = list(fallback_columns or [])
         known = {k for t in self.tables for k in t.keys}
         for col, kind in self.kinds.items():
-            if col not in known:
-                raise ValueError(f"kinds: no column named {col!r} in these files")
             if kind not in KINDS:
                 raise ValueError(
                     f"kinds: {kind!r} for {col!r} is not one of {', '.join(KINDS)}"
                 )
         for param, cols in (
+            ("kinds", self.kinds),
             ("batch_columns", self.batch_columns),
             ("fallback_columns", self.fallback_columns),
         ):
@@ -325,10 +364,7 @@ class CheckRun:
             for name, c in zip(t.header, t.keys):
                 column_fields = []
                 for v, rows in _review_values(t, name, c).items():
-                    # Rows shown: the first few, then how many more
-                    shown = ", ".join(str(r.line) for r in rows[:REVIEW_ROWS_SHOWN])
-                    if len(rows) > REVIEW_ROWS_SHOWN:
-                        shown += f" (+{len(rows) - REVIEW_ROWS_SHOWN} more)"
+                    shown = _row_list([r.line for r in rows], REVIEW_ROWS_SHOWN)
                     column_fields.append(
                         (t.name, t.letter(c), c, v, str(len(rows)), shown)
                     )
@@ -440,7 +476,7 @@ class CheckRun:
                     found += 1
                     hits.append(self._finding(cid, description, t, row, column, note))
             if not found:
-                hits.append((cid, description, "", "", "", "", "", "", "no findings"))
+                hits.append((cid, description, "", "", "", "", "", "", NO_FINDINGS))
         return hits
 
     def _finding(self, cid, description, t, row, column, note):
@@ -473,20 +509,9 @@ class CheckRun:
             outdir / f"profile_{timestamp}.html",
             outdir / f"review_{timestamp}.tsv",
         )
-        for p in (fpath, ppath, rpath):
-            if p.exists():
-                raise FileExistsError(f"{p} already exists; choose a new timestamp")
+        _refuse_existing(fpath, ppath, rpath)
         self.write_findings(outdir, timestamp)
-        review_header = [
-            "slice",
-            "file",
-            "column_letter",
-            "column",
-            "value",
-            "count",
-            "rows",
-        ]
-        _write_tsv(rpath, review_header, self.review_lines())
+        write_tsv(rpath, REVIEW_COLUMNS, self.review_lines())
         ppath.write_text(render_profile(self), encoding="utf-8")
         print(f"-> {ppath}\n-> {rpath}")
         return fpath, ppath, rpath
@@ -497,8 +522,7 @@ class CheckRun:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
         fpath = outdir / f"findings_{timestamp}.tsv"
-        if fpath.exists():
-            raise FileExistsError(f"{fpath} already exists; choose a new timestamp")
+        _refuse_existing(fpath)
         # Take the as-of date from the run's timestamp; any other form leaves
         # it unset, which S3-09 reports as not checked
         if self.as_of is None:
@@ -507,22 +531,18 @@ class CheckRun:
             except ValueError:
                 pass
         hits = self.run()
-        header = [
-            "check",
-            "description",
-            "file",
-            "spreadsheet_row",
-            "column_letter",
-            "column",
-            "sample_id",
-            "value",
-            "note",
-        ]
-        _write_tsv(fpath, header, hits)
-        # Report each check's count of findings
-        counts = Counter(h[0] for h in hits if h[8] != "no findings")
+        write_tsv(fpath, FINDINGS_COLUMNS, hits)
+        # Report each check's count of findings, or that it could not run
+        not_checked = {h[0] for h in hits if h[8].startswith(NOT_CHECKED_PREFIX)}
+        counts = Counter(
+            h[0]
+            for h in hits
+            if h[8] != NO_FINDINGS and not h[8].startswith(NOT_CHECKED_PREFIX)
+        )
         for cid, description, _ in self.checks:
-            print(f"{cid}\t{counts.get(cid, 0)}\t{description}")
+            count = counts.get(cid, 0)
+            shown = "not checked" if not count and cid in not_checked else count
+            print(f"{cid}\t{shown}\t{description}")
         print(f"-> {fpath}")
         return fpath
 
@@ -557,23 +577,23 @@ def _coverage_advice(
     return "split across helpers"
 
 
-def _write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
-    """Every cell as one line of text, so tabs and line breaks never split it."""
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write("\t".join(header) + "\n")
-        fh.writelines("\t".join(one_line(str(x)) for x in row) + "\n" for row in rows)
+def _refuse_existing(*paths: Path) -> None:
+    """Refuse to overwrite any output."""
+    for path in paths:
+        if path.exists():
+            raise FileExistsError(f"{path} already exists; choose a new timestamp")
 
 
 # ---------------------------------------------------------------------------
 # Generic checks
 # ---------------------------------------------------------------------------
 def _s0_utf8(t):
-    if not t.utf8:
+    if not t.utf8:  # same-pattern-ok: file flags; a factory is no simpler
         yield None, None, "not valid UTF-8; read as Latin-1 to continue"
 
 
 def _s0_bom(t):
-    if t.bom:
+    if t.bom:  # same-pattern-ok: file flags; a factory is no simpler
         yield None, None, "file starts with a UTF-8 byte-order mark"
 
 
@@ -631,6 +651,15 @@ def _row_at(t, line):
     return next((r for r in t.rows if r.line == line), None)
 
 
+def _frictionless_hits(t, error_type: str):
+    """(row, column key or None, note) for each frictionless error of this
+    type that falls on a data row."""
+    for kind, line, col, note in frictionless_errors(t):
+        r = _row_at(t, line) if kind == error_type else None
+        if r is not None:
+            yield r, t.keys[col - 1] if col else None, note
+
+
 def _s0_ragged(t):
     lines = sorted(
         {
@@ -646,29 +675,29 @@ def _s0_ragged(t):
 
 
 def _s0_blank_rows(t):
-    for kind, line, _, _ in frictionless_errors(t):
-        if kind == "blank-row" and _row_at(t, line) is not None:
-            yield _row_at(t, line), None
+    for r, _, _ in _frictionless_hits(t, "blank-row"):
+        yield r, None
 
 
-def _blank_label_keys(t):
-    return [
-        t.keys[col - 1]
-        for kind, _, col, _ in frictionless_errors(t)
-        if kind == "blank-label" and col and col <= len(t.keys)
-    ]
+def _nameless_columns(with_values: bool, note: str) -> Check:
+    """A check for columns with no name: those with values, or those without."""
 
+    def check(t):
+        blank_label_keys = [
+            t.keys[col - 1]
+            for kind, _, col, _ in frictionless_errors(t)
+            if kind == "blank-label" and col and col <= len(t.keys)
+        ]
+        for c in blank_label_keys:
+            if any(v.strip() for v in t.values(c)) == with_values:
+                yield None, c, note
 
-def _s0_blank_columns(t):
-    for c in _blank_label_keys(t):
-        if all(v.strip() == "" for v in t.values(c)):
-            yield None, c, "no header and no values"
+    return check
 
 
 def _s0_duplicate_rows(t):
-    for kind, line, _, note in frictionless_errors(t):
-        if kind == "duplicate-row" and _row_at(t, line) is not None:
-            yield _row_at(t, line), None, note
+    for r, _, note in _frictionless_hits(t, "duplicate-row"):
+        yield r, None, note
 
 
 def _s0_quotes(t):
@@ -702,36 +731,33 @@ def _s0_quotes(t):
 
 
 def _s1_breaks(t):
-    for r in t.rows:
-        for c, v in r.items():
-            if "\t" in v or "\n" in v or ("\r" in v and t.kind == "csv"):
-                yield r, c
+    for r, c, v in t.cells():
+        if "\t" in v or "\n" in v or ("\r" in v and t.kind == "csv"):
+            yield r, c
 
 
 def _s1_spaces(t):
     for c in t.header:
         if c != c.strip() or "  " in c:
             yield None, c, "column name has leading, trailing or doubled spaces"
-    for r in t.rows:
-        for c, v in r.items():
-            v = v.rstrip("\r")
-            if v != v.strip(" ") or "  " in v:
-                yield r, c
+    for r, c, v in t.cells():
+        v = v.rstrip("\r")
+        if v != v.strip(" ") or "  " in v:
+            yield r, c
 
 
 def _s1_unusual(t):
     for c in t.header:
         if UNUSUAL_SPACE.search(c):
             yield None, c, "column name contains an unusual space character"
-    for r in t.rows:
-        for c, v in r.items():
-            m = UNUSUAL_SPACE.search(v)
-            if m:
-                yield r, c, f"contains U+{ord(m.group()):04X}"
+    for r, c, v in t.cells():
+        m = UNUSUAL_SPACE.search(v)
+        if m:
+            yield r, c, f"contains U+{ord(m.group()):04X}"
 
 
 def _s1_crlf(t):
-    if t.crlf_lines:
+    if t.crlf_lines:  # same-pattern-ok: file flags; a factory is no simpler
         yield None, None, f"{t.crlf_lines} rows end in CRLF"
 
 
@@ -748,16 +774,10 @@ def _s2_duplicates(t):
         yield None, None, f"{n} columns are named {c!r} (columns {letters})"
 
 
-def _s2_empty_names(t):
-    for c in _blank_label_keys(t):
-        if any(v.strip() for v in t.values(c)):
-            yield None, c, "column has no name but has values"
-
-
 def _s3_truncated(t):
-    for kind, line, col, note in frictionless_errors(t):
-        if kind == "truncated-value" and col and _row_at(t, line) is not None:
-            yield _row_at(t, line), t.keys[col - 1], note
+    for r, c, note in _frictionless_hits(t, "truncated-value"):
+        if c is not None:
+            yield r, c, note
 
 
 def _pairs(t, test):
@@ -794,10 +814,8 @@ def _s3_mostly_identical(t):
         n = sum(a == b for a, b in zip(x, y))
         real = sum(a == b and not is_null(a) for a, b in zip(x, y))
         if 0.95 * len(x) <= n < len(x) and real >= 0.5 * n:  # not just shared nulls
-            rows = [str(r.line) for r, a, b in zip(t.rows, x, y) if a != b]
-            return f"{len(x) - n} rows differ: rows {', '.join(rows[:20])}" + (
-                " ..." if len(rows) > 20 else ""
-            )
+            lines = [r.line for r, a, b in zip(t.rows, x, y) if a != b]
+            return f"{len(x) - n} rows differ: rows {_row_list(lines, 20)}"
         return None
 
     yield from _pairs(t, test)
@@ -831,22 +849,16 @@ def _pii_label(v: str) -> str | None:
 def _s3_pii_value(t):
     """One finding per column and pattern, with the count and example rows."""
     found = defaultdict(list)
-    for r in t.rows:
-        for c, v in r.items():
-            label = _pii_label(v)
-            if label:
-                found[(c, label)].append(r)
+    for r, c, v in t.cells():
+        label = _pii_label(v)
+        if label:
+            found[(c, label)].append(r)
     for (c, label), rows in found.items():
         if len(rows) == 1:
             yield rows[0], c, label
         else:
-            eg = ", ".join(str(r.line) for r in rows[:5])
-            yield (
-                None,
-                c,
-                f"{label}: {len(rows)} values, e.g. rows {eg}"
-                + (" ..." if len(rows) > 5 else ""),
-            )
+            eg = _row_list([r.line for r in rows], 5)
+            yield None, c, f"{label}: {len(rows)} values, e.g. rows {eg}"
 
 
 def _date_like_digits(v: str) -> bool:
@@ -874,10 +886,9 @@ def _date_columns(t):
 
 def _s3_gene_dates(t):
     dates = set(_date_columns(t))
-    for r in t.rows:
-        for c, v in r.items():
-            if c in t.fallback and c not in dates and GENE_DATE.fullmatch(v.strip()):
-                yield r, c, "looks like a gene name converted to a date"
+    for r, c, v in t.cells():
+        if c in t.fallback and c not in dates and GENE_DATE.fullmatch(v.strip()):
+            yield r, c, "looks like a gene name converted to a date"
 
 
 def _date_format(v: str) -> str:
@@ -928,10 +939,9 @@ SCI_NOTATION = re.compile(r"[-+]?\d+(\.\d+)?[eE][-+]?\d+")
 
 
 def _s3_scientific(t):
-    for r in t.rows:
-        for c, v in r.items():
-            if SCI_NOTATION.fullmatch(v.strip()):
-                yield r, c, SCI_ID_NOTE if is_label_name(c) else SCI_NOTE
+    for r, c, v in t.cells():
+        if SCI_NOTATION.fullmatch(v.strip()):
+            yield r, c, SCI_ID_NOTE if is_label_name(c) else SCI_NOTE
 
 
 def _review_values(t, name: str, c: str) -> dict[str, list]:
@@ -1005,10 +1015,9 @@ def _s3_near_duplicates(t):
 
 
 def _s9_empty(t):
-    for r in t.rows:
-        for c, v in r.items():
-            if v == "" or v in NAN_LIKE:
-                yield r, c
+    for r, c, v in t.cells():
+        if v == "" or v in NAN_LIKE:
+            yield r, c
 
 
 def _dup_ids(run: CheckRun):
@@ -1032,7 +1041,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S0-02", "file starts with a byte-order mark", _s0_bom),
     ("S0-03", "row has a different number of cells from the header", _s0_ragged),
     ("S0-04", "entirely blank row", _s0_blank_rows),
-    ("S0-05", "blank column (no header, no values)", _s0_blank_columns),
+    (
+        "S0-05",
+        "blank column (no header, no values)",
+        _nameless_columns(False, "no header and no values"),
+    ),
     (
         "S0-06",
         "value read differently if quotes are treated CSV-style (TSV)",
@@ -1044,7 +1057,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S1-03", "unusual space character (non-breaking, zero-width, ...)", _s1_unusual),
     ("S1-04", "CRLF row endings", _s1_crlf),
     ("S2-01", "duplicate column name", _s2_duplicates),
-    ("S2-02", "column with values but no name", _s2_empty_names),
+    (
+        "S2-02",
+        "column with values but no name",
+        _nameless_columns(True, "column has no name but has values"),
+    ),
     ("S3-01", "two columns identical in every row", _s3_identical),
     ("S3-02", "two columns identical except for capitalization", _s3_case_only),
     ("S3-03", "two columns identical in at least 95% of rows", _s3_mostly_identical),
@@ -1288,7 +1305,7 @@ def _column_card(
     non_null = [v for v in vals if not is_null(v)]
     if set_kind:
         kind, label = set_kind, "set by scientist"
-        if kind == "categorical" and nums and len(nums) >= 0.9 * len(non_null):
+        if kind == "categorical" and nums and len(nums) >= MOSTLY_SHARE * len(non_null):
             kind = "categorical (numbers)"
     else:
         kind, label = column_kind(vals, name), "guess"

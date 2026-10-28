@@ -43,6 +43,10 @@ def test_reads_every_cell_as_text_and_keeps_quotes(write):
     assert list(t.df["n"]) == ["007", "NA"] and t.df.loc["T|row 3", "q"] == "None"
 
 
+# The reader has its own tests (test_read_file); the Table tests below that
+# overlap them check that Table builds its frame from what the reader returns
+
+
 def test_csv_parsed_standard_way(write):
     t = ct.Table("C", write("c.csv", 'sample_name,note\nS1,"a, b"\n'))
     assert t.df.loc["C|row 2", "note"] == "a, b"
@@ -142,6 +146,33 @@ def test_read_file_unreadable_suffix_stops(write):
         ct.read_file(write("t.xlsx", None, raw=b"PK\x03\x04"))
 
 
+@pytest.mark.parametrize(
+    "i,letter",
+    [
+        (0, "A"),
+        (25, "Z"),
+        (26, "AA"),
+        (51, "AZ"),
+        (52, "BA"),
+        (701, "ZZ"),
+        (702, "AAA"),
+    ],
+)
+def test_column_letter(i, letter):
+    assert ct.column_letter(i) == letter
+
+
+def test_display_name_strips_upload_prefix(tmp_path):
+    assert (
+        ct.display_name(tmp_path / "5e17a0c3-2023-04-02_batch_b.txt")
+        == "2023-04-02_batch_b.txt"
+    )
+    assert (
+        ct.display_name(tmp_path / "deadbeef-notes.txt") == "deadbeef-notes.txt"
+    )  # no date after prefix
+    assert ct.display_name(tmp_path / "samples.tsv") == "samples.tsv"
+
+
 def test_unique_column_names():
     assert ct.unique_column_names(["a", "a", "", "b"]) == [
         "a",
@@ -153,6 +184,20 @@ def test_unique_column_names():
 
 def test_one_line():
     assert ct.one_line("a\tb\r\nc") == "a\\tb\\r\\nc"
+
+
+def test_refuse_existing(tmp_path):
+    there = tmp_path / "there.tsv"
+    there.write_text("x")
+    ct.refuse_existing(tmp_path / "absent.tsv")
+    with pytest.raises(Stop, match="there.tsv already exists"):
+        ct.refuse_existing(tmp_path / "absent.tsv", there)
+
+
+def test_write_tsv(tmp_path):
+    out = tmp_path / "o.tsv"
+    ct.write_tsv(out, ["a", "b"], [("x\ty", 1), ("line\nbreak", "")])
+    assert out.read_text() == "a\tb\nx\\ty\t1\nline\\nbreak\t\n"
 
 
 @pytest.mark.parametrize(
@@ -408,9 +453,15 @@ def test_normalize_whitespace_unusual_spaces(write):
     pd.testing.assert_frame_equal(t.df, expected)
 
 
-def test_stack(write):
+def stack_parts(write):
+    """Two tables with the same columns and different samples."""
     a = load(write, [["sample_name", "x"], ["S1", "1"]], "a.tsv", "A")
     b = load(write, [["sample_name", "x"], ["S2", "2"]], "b.tsv", "B")
+    return a, b
+
+
+def test_stack(write):
+    a, b = stack_parts(write)
     m = ct.stack([a, b], decision="D-011", source_column="source_file")
     assert m.name == "merged" and list(m.df["sample_name"]) == ["S1", "S2"]
     assert list(m.df["source_file"]) == ["a.tsv", "b.tsv"]
@@ -418,8 +469,7 @@ def test_stack(write):
 
 
 def stacked_outputs(write, tmp_path):
-    a = load(write, [["sample_name", "x"], ["S1", "1"]], "a.tsv", "A")
-    b = load(write, [["sample_name", "x"], ["S2", "2"]], "b.tsv", "B")
+    a, b = stack_parts(write)
     m = ct.stack([a, b], decision="D-011")
     written = {}
     for name, table in (("A", a), ("B", b), ("merged", m)):
@@ -498,10 +548,16 @@ def decisions(t):
 """
 
 
-def test_parse_log(tmp_path):
+@pytest.fixture
+def log_file(tmp_path):
+    """The decision log LOG, written to a file."""
     p = tmp_path / "log.md"
     p.write_text(LOG)
-    entries = ct.parse_log(p)
+    return p
+
+
+def test_parse_log(log_file):
+    entries = ct.parse_log(log_file)
     assert [(e["id"], e["changes"], e["replaces"]) for e in entries] == [
         ("D-001", False, None),
         ("D-002", True, None),
@@ -516,10 +572,8 @@ def test_parse_blocks():
     assert blocks == {"D-001": True, "D-002": False, "D-003": True}  # True: only `pass`
 
 
-def test_log_and_script_agree(tmp_path):
-    p = tmp_path / "log.md"
-    p.write_text(LOG)
-    assert ct.log_mismatches(ct.parse_log(p), ct.parse_blocks(GOOD)) == []
+def test_log_and_script_agree(log_file):
+    assert ct.log_mismatches(ct.parse_log(log_file), ct.parse_blocks(GOOD)) == []
 
 
 @pytest.mark.parametrize(
@@ -539,10 +593,9 @@ def test_log_and_script_agree(tmp_path):
         ),
     ],
 )
-def test_log_mismatches(tmp_path, script, expected):
-    p = tmp_path / "log.md"
-    p.write_text(LOG)
-    assert expected in ct.log_mismatches(ct.parse_log(p), ct.parse_blocks(script))
+def test_log_mismatches(log_file, script, expected):
+    out = ct.log_mismatches(ct.parse_log(log_file), ct.parse_blocks(script))
+    assert expected in out
 
 
 def test_changes_data_yes_needs_code_unless_replaced(tmp_path):
@@ -553,11 +606,9 @@ def test_changes_data_yes_needs_code_unless_replaced(tmp_path):
     assert "D-003 changes data but its block is only `pass`" in out
 
 
-def test_replaced_decision_must_be_pass(tmp_path):
-    p = tmp_path / "log.md"
-    p.write_text(LOG)
+def test_replaced_decision_must_be_pass(log_file):
     out = ct.log_mismatches(
-        ct.parse_log(p),
+        ct.parse_log(log_file),
         ct.parse_blocks(
             GOOD.replace("    # D-002\n    pass", "    # D-002\n    x = 1")
         ),
@@ -615,9 +666,12 @@ BODY = (
 )
 
 
-def run_script(script, *args):
+def run_cleanup(script, inputs, outdir, timestamp, log, *extra):
+    """Run a made cleanup script on the command line; extra: further options."""
     import subprocess
 
+    args = ["--inputs", inputs, "--outdir", outdir, "--timestamp", timestamp]
+    args += ["--decision-log", log, *extra]
     return subprocess.run(
         [sys.executable, str(script), *map(str, args)], capture_output=True, text=True
     )
@@ -626,17 +680,7 @@ def run_script(script, *args):
 def test_end_to_end_draft_run(tmp_path):
     inputs, log, script = make_project(tmp_path, BODY, ENTRY)
     outdir = tmp_path / "out"
-    r = run_script(
-        script,
-        "--inputs",
-        inputs,
-        "--outdir",
-        outdir,
-        "--timestamp",
-        "20261022-120000",
-        "--decision-log",
-        log,
-    )
+    r = run_cleanup(script, inputs, outdir, "20261022-120000", log)
     assert r.returncode == 0, r.stderr
     out = (outdir / "2023-04-02_batch_a__draft_20261022-120000.tsv").read_text()
     assert out == "sample_name\tstatus\nS1\tHealthy\nS2\tHealthy\n"
@@ -650,20 +694,7 @@ def test_end_to_end_draft_run(tmp_path):
 def test_end_to_end_is_deterministic(tmp_path):
     inputs, log, script = make_project(tmp_path, BODY, ENTRY)
     for ts in ("20261022-120000", "20261022-120100"):
-        assert (
-            run_script(
-                script,
-                "--inputs",
-                inputs,
-                "--outdir",
-                tmp_path / "out",
-                "--timestamp",
-                ts,
-                "--decision-log",
-                log,
-            ).returncode
-            == 0
-        )
+        assert run_cleanup(script, inputs, tmp_path / "out", ts, log).returncode == 0
     a = (
         tmp_path / "out" / "2023-04-02_batch_a__draft_20261022-120000.tsv"
     ).read_bytes()
@@ -675,18 +706,7 @@ def test_end_to_end_is_deterministic(tmp_path):
 
 def test_end_to_end_final_names(tmp_path):
     inputs, log, script = make_project(tmp_path, BODY, ENTRY)
-    r = run_script(
-        script,
-        "--inputs",
-        inputs,
-        "--outdir",
-        tmp_path / "out",
-        "--timestamp",
-        "20261022-130000",
-        "--decision-log",
-        log,
-        "--final",
-    )
+    r = run_cleanup(script, inputs, tmp_path / "out", "20261022-130000", log, "--final")
     assert r.returncode == 0, r.stderr
     assert (
         tmp_path / "out" / "2023-04-02_batch_a__cleanup_20261022-130000.tsv"
@@ -696,17 +716,7 @@ def test_end_to_end_final_names(tmp_path):
 
 def test_end_to_end_stops_on_log_mismatch(tmp_path):
     inputs, log, script = make_project(tmp_path, "    # D-001\n    pass\n", ENTRY)
-    r = run_script(
-        script,
-        "--inputs",
-        inputs,
-        "--outdir",
-        tmp_path / "out",
-        "--timestamp",
-        "20261022-120000",
-        "--decision-log",
-        log,
-    )
+    r = run_cleanup(script, inputs, tmp_path / "out", "20261022-120000", log)
     assert (
         r.returncode != 0
         and "D-001 changes data but its block is only `pass`" in r.stderr
@@ -729,31 +739,11 @@ def test_end_to_end_stacking_report_only_on_first_draft(tmp_path):
     )
     script.write_text(src)
     out = tmp_path / "out"
-    first = run_script(
-        script,
-        "--inputs",
-        inputs,
-        "--outdir",
-        out,
-        "--timestamp",
-        "20261022-120000",
-        "--decision-log",
-        log,
-    )
+    first = run_cleanup(script, inputs, out, "20261022-120000", log)
     assert first.returncode == 0, first.stderr
     assert "same as the per-table outputs in order: yes" in first.stdout
     assert (out / "merged__stacking__draft_20261022-120000.tsv").exists()
-    second = run_script(
-        script,
-        "--inputs",
-        inputs,
-        "--outdir",
-        out,
-        "--timestamp",
-        "20261022-120100",
-        "--decision-log",
-        log,
-    )
+    second = run_cleanup(script, inputs, out, "20261022-120100", log)
     assert second.returncode == 0, second.stderr
     assert not (out / "merged__stacking__draft_20261022-120100.tsv").exists()
 

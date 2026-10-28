@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 import daff
@@ -83,15 +84,15 @@ def main() -> int:
     daff.TableDiff(alignment, flags).hilite(result)
     rows = result.data
 
-    changed = sum(1 for r in rows if r and r[0] == "->")
-    added = sum(1 for r in rows if r and r[0] == "+++")
-    removed = sum(1 for r in rows if r and r[0] == "---")
+    # Count daff's markers: on each row, and on each column in the schema row
+    row_marks = Counter(r[0] for r in rows if r)
+    changed, added, removed = row_marks["->"], row_marks["+++"], row_marks["---"]
     schema = next((r for r in rows if r and r[0] == "!"), [])
-    cols_added = sum(1 for c in schema[1:] if c == "+++")
-    cols_removed = sum(1 for c in schema[1:] if c == "---")
+    col_marks = Counter(schema[1:])
+    cols_added, cols_removed = col_marks["+++"], col_marks["---"]
     # "(old name)" marks a rename and ":" a move; "..." only marks hidden columns
     cols_renamed = sum(1 for c in schema[1:] if c.startswith("("))
-    cols_moved = sum(1 for c in schema[1:] if c == ":")
+    cols_moved = col_marks[":"]
 
     if not (
         changed

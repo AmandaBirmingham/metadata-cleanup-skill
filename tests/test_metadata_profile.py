@@ -16,7 +16,16 @@ def hits(paths, cid, sample_id="sample_name", **kw):
     """Findings of one generic check, without the 'no findings' row."""
     run = CheckRun([str(p) for p in paths], sample_id=sample_id, **kw)
     run.generic_checks()
+    # "no findings" is typed out, not taken from the module, throughout these
+    # tests so that they pin the note written to the findings file
     return [h for h in run.run() if h[0] == cid and h[8] != "no findings"]
+
+
+def read_findings(path):
+    """The findings file's data rows, each a list of its fields."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    rows = [x.split("\t") for x in lines[1:]]
+    return rows
 
 
 def table(write, rows, name="t.tsv"):
@@ -26,33 +35,6 @@ def table(write, rows, name="t.tsv"):
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "i,letter",
-    [
-        (0, "A"),
-        (25, "Z"),
-        (26, "AA"),
-        (51, "AZ"),
-        (52, "BA"),
-        (701, "ZZ"),
-        (702, "AAA"),
-    ],
-)
-def test_column_letter(i, letter):
-    assert mp.column_letter(i) == letter
-
-
-def test_display_name_strips_upload_prefix(tmp_path):
-    assert (
-        mp.display_name(tmp_path / "5e17a0c3-2023-04-02_batch_b.txt")
-        == "2023-04-02_batch_b.txt"
-    )
-    assert (
-        mp.display_name(tmp_path / "deadbeef-notes.txt") == "deadbeef-notes.txt"
-    )  # no date after prefix
-    assert mp.display_name(tmp_path / "samples.tsv") == "samples.tsv"
-
-
 @pytest.mark.parametrize(
     "v,ok",
     [
@@ -131,6 +113,18 @@ def test_fmt_never_exponential(x, s):
     assert "e" not in mp._fmt(x).lower()
 
 
+@pytest.mark.parametrize(
+    "lines,limit,expected",
+    [
+        ([2, 3, 4], 5, "2, 3, 4"),
+        ([2, 3, 4], 3, "2, 3, 4"),
+        ([2, 3, 4, 5, 6], 3, "2, 3, 4 (+2 more)"),
+    ],
+)
+def test__row_list(lines, limit, expected):
+    assert mp._row_list(lines, limit) == expected
+
+
 # ---------------------------------------------------------------------------
 # column kind guesses
 # ---------------------------------------------------------------------------
@@ -178,6 +172,10 @@ def test_is_null_other_values():
 # ---------------------------------------------------------------------------
 # reading
 # ---------------------------------------------------------------------------
+# The shared reader has its own tests (test_cleanup_template.py); the tests
+# here that overlap them check that Table builds itself from what it returns
+
+
 def test_tsv_read_literally(write):
     t = table(
         write, [["sample_name", "note"], ["S1", '"""quoted"""'], ["S2", 'a "b" c']]
@@ -806,6 +804,18 @@ def test_write_findings(write, tmp_path):
         run.write_findings(out, "t1")
 
 
+def test_write_findings_counts_not_checked(write, tmp_path, capsys):
+    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run.generic_checks()
+    run.write_findings(tmp_path / "out", "t1")  # no as-of date: S3-09 cannot run
+    printed = capsys.readouterr().out.splitlines()
+    found = [line for line in printed if line.startswith(("S3-09", "S3-10"))]
+    assert found == [
+        "S3-09\tnot checked\tdate after the as-of date",
+        "S3-10\t0\tpartial date (year or year-month only)",
+    ]
+
+
 @pytest.mark.parametrize(
     "as_of,timestamp,expected",
     [
@@ -821,8 +831,7 @@ def test_write_findings_as_of(write, tmp_path, as_of, timestamp, expected):
     run = CheckRun([str(p)], sample_id="sample_name", as_of=as_of)
     run.generic_checks()
     f = run.write_findings(tmp_path / "out", timestamp)
-    lines = [x.split("\t") for x in f.read_text(encoding="utf-8").splitlines()]
-    found = [(x[7], x[8]) for x in lines if x[0] == "S3-09"]
+    found = [(x[7], x[8]) for x in read_findings(f) if x[0] == "S3-09"]
     assert found == expected
 
 
@@ -835,8 +844,8 @@ def test_main_pii_only(write, tmp_path):
     argv = ["--pii", str(p), "--sample-id", "sample_name"]
     argv += ["--out", str(out), "--timestamp", "t1"]
     assert mp.main(argv) == 0
-    lines = (out / "findings_t1.tsv").read_text().splitlines()
-    found = [tuple(x.split("\t")[i] for i in (0, 5, 7, 8)) for x in lines[1:]]
+    rows = read_findings(out / "findings_t1.tsv")
+    found = [(x[0], x[5], x[7], x[8]) for x in rows]
     assert (sorted(x.name for x in out.iterdir()), found) == (
         ["findings_t1.tsv"],
         [

@@ -39,6 +39,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable
 
 import pandas as pd
 
@@ -161,6 +162,20 @@ def one_line(v: str) -> str:
     return v.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
 
 
+def refuse_existing(*paths: Path) -> None:
+    """Stop if any of the paths already exists: outputs are never overwritten."""
+    for path in paths:
+        if path.exists():
+            raise Stop(f"{path} already exists; never overwrite an output")
+
+
+def write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
+    """Every cell as one line of text, so tabs and line breaks never split it."""
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write("\t".join(header) + "\n")
+        fh.writelines("\t".join(one_line(str(x)) for x in row) + "\n" for row in rows)
+
+
 class Table:
     """One table: .df holds every cell as text. Rows are identified as
     "<table>|row N" (N = spreadsheet row, header = row 1); each column keeps
@@ -241,8 +256,7 @@ def _mask(table: Table, ids, conditions: dict) -> pd.Series:
             raise Stop(f"{table.name}: no sample with ID {', '.join(missing)}")
         mask &= table.df[SAMPLE_ID].isin(ids)
     for column, cond in conditions.items():
-        if column not in table.df.columns:
-            raise Stop(f"{table.name}: no column named {column!r}")
+        table._need(column)
         col = table.df[column]
         if callable(cond):
             m = col.map(lambda v: bool(cond(v)))
@@ -289,6 +303,11 @@ def _record(decision, kind, table, row_id="", column="", old="", new="", letter=
             "new": new,
         }
     )
+
+
+def _refuse_column(table: Table, column: str, decision: str) -> None:
+    if column in table.df.columns:
+        raise Stop(f"{decision}: {table.name} already has a column named {column!r}")
 
 
 def _own(table: Table, rows: RowSet) -> None:
@@ -375,8 +394,7 @@ def add_column(
     after: str | None = None,
 ) -> None:
     """Add a column: one value for every row, or a value for every sample ID."""
-    if column in table.df.columns:
-        raise Stop(f"{decision}: {table.name} already has a column named {column!r}")
+    _refuse_column(table, column, decision)
     ids = list(table.df[SAMPLE_ID])
     if isinstance(values, dict):
         unknown = [k for k in values if k not in set(ids)]
@@ -400,8 +418,7 @@ def add_column(
 
 def rename_column(table: Table, old: str, new: str, decision: str) -> None:
     table._need(old)
-    if new in table.df.columns:
-        raise Stop(f"{decision}: {table.name} already has a column named {new!r}")
+    _refuse_column(table, new, decision)
     table.df = table.df.rename(columns={old: new})
     table._col_ids[new] = table._col_ids.pop(old, "")
     _record(decision, "column renamed", table, column=new, old=old, new=new)
@@ -482,8 +499,7 @@ def write_stacking_report(merged: Table, written: dict[str, Path], path: Path) -
     """Rows from each stacked table, the totals, and whether the combined output
     equals the per-table outputs placed one after another. written maps each
     table's name to its output file."""
-    if path.exists():
-        raise Stop(f"{path} already exists; never overwrite an output")
+    refuse_existing(path)
     # Compare the written files: one header, then every table's rows in order
     merged_lines = written[merged.name].read_text(encoding="utf-8").splitlines()
     part_lines = [
@@ -499,10 +515,7 @@ def write_stacking_report(merged: Table, written: dict[str, Path], path: Path) -
         ("columns", str(n_cols)),
         ("same as the per-table outputs in order", same),
     ]
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write("item\tvalue\n")
-        for item, value in items:
-            fh.write(f"{item}\t{value}\n")
+    write_tsv(path, ["item", "value"], items)
     summary = (
         f"{merged.name}: {len(merged.parts)} tables stacked, {n_rows} rows, {n_cols} columns; "
         f"same as the per-table outputs in order: {same}"
@@ -582,8 +595,7 @@ def log_mismatches(entries: list[dict], blocks: dict[str, bool]) -> list[str]:
 # -- writing -----------------------------------------------------------------
 def write_table(table: Table, path: Path) -> None:
     """Rows written directly: cells joined by tabs, rows ended by LF."""
-    if path.exists():
-        raise Stop(f"{path} already exists; never overwrite an output")
+    refuse_existing(path)
     rows = [list(table.df.columns)] + table.df.values.tolist()
     for r in rows:
         for v in r:
@@ -593,7 +605,7 @@ def write_table(table: Table, path: Path) -> None:
                 )
     with open(path, "w", encoding="utf-8", newline="") as fh:
         for r in rows:
-            fh.write("\t".join(r) + "\n")
+            fh.write("\t".join(r) + "\n")  # same-pattern-ok: refuses tabs
 
 
 CHANGE_COLUMNS = [
@@ -610,12 +622,9 @@ CHANGE_COLUMNS = [
 
 
 def write_changes(path: Path) -> None:
-    if path.exists():
-        raise Stop(f"{path} already exists; never overwrite an output")
-    with open(path, "w", encoding="utf-8", newline="") as fh:
-        fh.write("\t".join(CHANGE_COLUMNS) + "\n")
-        for c in CHANGES:
-            fh.write("\t".join(one_line(str(c[k])) for k in CHANGE_COLUMNS) + "\n")
+    refuse_existing(path)
+    rows = [[c[k] for k in CHANGE_COLUMNS] for c in CHANGES]
+    write_tsv(path, CHANGE_COLUMNS, rows)
 
 
 def previous_draft(outdir: Path, stem: str, timestamp: str, original: Path) -> Path:
