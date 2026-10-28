@@ -11,11 +11,14 @@ Run the bundled script; don't write your own:
     uv run scripts/diff_tables.py PREVIOUS.tsv NEW.tsv --key sample_name --out DIFF.html
 
 `scripts/diff_tables.py` reads both files with every cell as
-text, quote characters included; compares them with daff, matching rows by
-the key column; and writes an HTML page with changed cells shaded and shown
-as `old → new`, and unchanged rows and columns collapsed to `...`. It prints
-a one-line summary: rows changed, rows added or removed, columns added or
-removed. If nothing changed, it says so and writes no page.
+text, quote characters included (a `.csv` file, such as an original, is
+parsed as CSV); compares them with daff, matching rows by the key column; and
+writes an HTML page with changed cells shaded and shown as `old → new`, and
+unchanged rows and columns collapsed to `...`. If the key repeats or is empty
+in either file, daff matches rows by content instead, and the summary says
+so. It prints a one-line summary: rows changed, rows added or removed,
+columns added, removed, renamed or moved. If nothing changed, it says so and
+writes no page.
 
 Name the page to match the run: `<file>__diff__draft_<timestamp>.html`, one
 per table.

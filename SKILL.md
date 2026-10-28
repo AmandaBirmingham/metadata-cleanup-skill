@@ -5,10 +5,8 @@ description: Help a scientist clean up and complete experimental sample metadata
 
 # Metadata cleanup for repository submission
 
-> **DRAFT.** Scripts marked *(planned)* below do not exist yet; the work still
-> to do is listed in `BACKLOG.md`. Until they do,
-> write equivalent code inside the check script or cleanup script, following
-> `references/check_script.md` and `references/cleanup_script.md`.
+> **DRAFT.** The work still to do is listed in `BACKLOG.md`; each place it
+> applies says what to do in the meantime.
 
 ## Who you are helping
 
@@ -75,7 +73,14 @@ themselves instead of handing it to repository staff.
 10. **Label guesses as guesses.** Any explanation you offer for a pattern in
     the data ("probably one shipment", "expected from the design") is a guess
     unless the files or the scientist have established it. Say so and ask;
-    never present it as fact or use it to set a finding aside.
+    never present it as fact or use it to set a finding aside. A problem you
+    noticed by judgment, not by a coded check, is presented as your judgment.
+11. **Coded checks are a floor, not the whole review.** The check script
+    finds what fixed rules can find; possible PII, values meant as missing,
+    and many other problems also need your judgment, so read the values for
+    them on every run (see "Judgment review" in `references/table_checks.md`).
+    The code's PII checks run first, and what they find is hidden from you.
+    Only checking uses judgment: every change is still code (rule 5).
 
 ## Starting a session
 
@@ -88,9 +93,12 @@ Work out which situation applies:
   decisions unknown to the person you are helping): follow "Pre-existing
   studies" in `references/study_discussion.md`, then move to the file.
 - **Continuing earlier work:** ask for the latest cleanup script and decision
-  log from the previous session, plus the original input files. Rerun the
-  script to confirm it reproduces the last outputs, summarize where things
-  stand from the decision log, and continue.
+  log from the previous session, plus the original input files. Compare the
+  script's helper layer (everything after `# === END OF DECISIONS ===`) with
+  the current template's. If they differ, tell the scientist, and do no
+  further work until they match; say what will change in the script before
+  changing it. Then rerun the script to confirm it reproduces the last
+  outputs, summarize where things stand from the decision log, and continue.
 
 At the start, tell the scientist briefly:
 
@@ -132,25 +140,27 @@ are in `references/table_checks.md`.
 
 Start by running the check script on the original files, before discussing
 any finding with the scientist. Its parts (generic and study-specific) and
-its two outputs (a profile for the scientist, a findings file for you) are
-described in `references/check_script.md`.
+its three outputs (a profile for the scientist; findings and review files for
+you) are described in `references/check_script.md`.
 
 After every run, give the scientist the profile's full path and ask them to
 open it in a browser and look through it: to check that the counts, ranges
 and values match what they know of their study, and to tell you anything
 that looks wrong or surprising. Wait until they say they have looked at it
-before bringing up any finding. Tell them the findings file is a working list
-for you, so they don't need to open it; you will bring its findings to them a
-few at a time.
+before bringing up any finding. Tell them the findings and review files are
+working lists for you, so they don't need to open them; you will bring the
+findings to them a few at a time.
 
 Every finding, number and location (column letter, spreadsheet row, count)
 you bring to the scientist is quoted from these files, never counted,
 computed, recalled, or retyped from a one-off command; if you need a number
-they don't hold, add a check and rerun it. When to run the check script is
-under "When to run it" in `references/check_script.md`.
+they don't hold, add a check and rerun it. A problem found in the judgment
+review takes its locations from the review file's lines for its values.
+When to run the check script is under "When to run it" in
+`references/check_script.md`.
 
-Before raising any finding, carry out the triage under "Triage" in
-`references/table_checks.md`. From the first run, also compare the sample and control counts with
+Before raising any finding, carry out the judgment review and then the triage,
+both in `references/table_checks.md`. From the first run, also compare the sample and control counts with
 the Phase 1 estimates, using a count check written for the study, and raise a
 large gap early, as possible missing data.
 
@@ -197,11 +207,12 @@ Deliver:
 - one merged TSV (if there was more than one table);
 - the decision log;
 - the skill-feedback notes, for the skill's maintainers;
-- the latest profile and findings files from the check script;
+- the latest profile, findings and review files from the check script;
 - a short plain-language summary of what changed, what is still open, how the
-  final counts compare with the estimates, and any hypothesis or confounder
+  final counts compare with the estimates, any hypothesis or confounder
   field that lacks the variation needed to test it or is confounded with
-  another.
+  another, and every column whose values were checked only by the coded
+  fallback, not read.
 
 If the scientist reopens the discussion later, work continues in a new draft
 script; the next final version gets its own timestamp, and the decision log
@@ -211,7 +222,8 @@ records the reopening.
 
 - **Per-table corrected copies** contain only fields that came from that
   table, with all decisions applied to those fields, including corrections
-  that were only noticed after merging.
+  that were only noticed after merging. *(Not built yet; see "Not yet in the
+  template" in `references/cleanup_script.md`.)*
 - **Merged-only fields** — fields that came from no input table, such as those
   added at Stage 8 — appear only in the merged file.
 
@@ -270,7 +282,9 @@ it is; the script stops if any listed ID does not exist.
 
   - the heading has the ID (`D-001`, `D-002`, …, in order) and the date and
     time from the system clock;
-  - `Finding:` is the check ID and the findings file it came from, or `none`;
+  - `Finding:` is the check ID and the findings file it came from, a line
+    of a review file (`review line 412, review_20261022-101500.tsv`), or
+    `none`;
   - `Decided:` says what was decided, in plain words;
   - `Changes data:` is `yes` or `no`;
   - a replacement adds `Replaces: D-001`.
@@ -298,8 +312,10 @@ it is; the script stops if any listed ID does not exist.
   abbreviation). The metadata holds the `sample_type` identifier
   (`control_blank`), never the label; a label or abbreviation the scientist
   writes (`control blank`, `CSF`) is a candidate to map to its identifier,
-  with their approval. *(Planned: a cleanup-script helper for setting a
-  sample type; see BACKLOG.md.)*
+  with their approval. *(Planned: a check that each `sample_type` value is
+  on the list; see BACKLOG.md. Until then, compare the values with the list
+  yourself.)* Which values were meant as which sample type is part of the
+  judgment review.
 - **Repository column names:** *(placeholder — still to be supplied; see
   BACKLOG.md)*.
 
@@ -319,7 +335,7 @@ write the full absolute path.
 | `references/merge_and_validation.md` | Stages 7–9 in detail |
 | `references/ena_requirements.md` | ENA fields, checklists, null values |
 | `references/cleanup_script.md` | Structure of the cleanup script |
-| `references/check_script.md` | The check script: what it runs and its two output files |
+| `references/check_script.md` | The check script: what it runs and its three output files |
 | `references/diff_view.md` | The diff view (daff) used to show each change |
 | `references/pii.md` | PII and PHI to watch for |
 | `assets/ena_null_terms.tsv` | ENA missing-value terms, with ENA's definitions and plain meanings |
@@ -329,8 +345,6 @@ write the full absolute path.
 | `assets/ncbi_taxonomy.tsv.gz` | Full NCBI taxonomy list |
 | `scripts/build_envo_lookup.py` | Maintainer tool, not used in sessions: rebuilds `envo_lookup.tsv` from an ENVO `.owl` release plus the repository's ENVO term list |
 | `scripts/metadata_profile.py` | Generic part of the check script: column profile, generic checks, and the Stage 9 checks |
-| `scripts/taxon_lookup.py` *(planned; see BACKLOG.md)* | Taxonomy search, obsolete check, ENA check |
-| `scripts/envo_lookup.py` *(planned; see BACKLOG.md)* | ENVO search filtered by field |
 | `scripts/diff_tables.py` | Diff between two versions of a table (daff), as an HTML page |
 | `scripts/cleanup_template.py` | Starting point for the cleanup script: dependency block, helper layer, and the check against the decision log |
 | `tests/` | Tests for the bundled scripts |

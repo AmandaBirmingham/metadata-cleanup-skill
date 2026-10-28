@@ -4,6 +4,7 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import cleanup_template as ct
@@ -77,6 +78,128 @@ def test_bom_and_crlf_read(write):
     assert (
         list(t.df.columns) == ["sample_name", "a"] and t.df.loc["T|row 2", "a"] == "x"
     )
+
+
+@pytest.mark.parametrize(
+    "name,raw,expected",
+    [
+        (
+            "t.tsv",
+            b'sample_name\ta\nS1\t"x"\n\nS2\ty\n',
+            ct.RawTable(
+                "tsv",
+                'sample_name\ta\nS1\t"x"\n\nS2\ty\n',
+                False,
+                True,
+                0,
+                [["sample_name", "a"], ["S1", '"x"'], [], ["S2", "y"]],
+            ),
+        ),
+        (
+            "t.csv",
+            b'sample_name,a\nS1,"x, y"\n\nS2,z\n',
+            ct.RawTable(
+                "csv",
+                'sample_name,a\nS1,"x, y"\n\nS2,z\n',
+                False,
+                True,
+                0,
+                [["sample_name", "a"], ["S1", "x, y"], [], ["S2", "z"]],
+            ),
+        ),
+        (
+            "t.txt",
+            b"\xef\xbb\xbfsample_name\ta\r\nS1\tx\r\n",
+            ct.RawTable(
+                "tsv",
+                "sample_name\ta\r\nS1\tx\r\n",
+                True,
+                True,
+                2,
+                [["sample_name", "a"], ["S1", "x"]],
+            ),
+        ),
+        (
+            "t.tsv",
+            "sample_name\ta\nS1\t\xe3\n".encode("latin-1"),
+            ct.RawTable(
+                "tsv",
+                "sample_name\ta\nS1\t\xe3\n",
+                False,
+                False,
+                0,
+                [["sample_name", "a"], ["S1", "\xe3"]],
+            ),
+        ),
+    ],
+)
+def test_read_file(write, name, raw, expected):
+    assert ct.read_file(write(name, None, raw=raw)) == expected
+
+
+def test_read_file_unreadable_suffix_stops(write):
+    with pytest.raises(Stop, match="cannot read .xlsx"):
+        ct.read_file(write("t.xlsx", None, raw=b"PK\x03\x04"))
+
+
+def test_unique_column_names():
+    assert ct.unique_column_names(["a", "a", "", "b"]) == [
+        "a",
+        "a [col B]",
+        "[col C]",
+        "b",
+    ]
+
+
+def test_one_line():
+    assert ct.one_line("a\tb\r\nc") == "a\\tb\\r\\nc"
+
+
+@pytest.mark.parametrize(
+    "name,content",
+    [
+        ("t.tsv", "sample_name\ta\nS1\tx\n\nS2\ty\n"),
+        ("t.csv", "sample_name,a\nS1,x\n\nS2,y\n"),
+    ],
+)
+def test_table_blank_rows_kept(write, name, content):
+    t = ct.Table("T", write(name, content))
+    expected = pd.DataFrame(
+        {"sample_name": ["S1", "", "S2"], "a": ["x", "", "y"]},
+        index=["T|row 2", "T|row 3", "T|row 4"],
+        dtype=str,
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
+    # A blank row is removed only by a recorded decision, under its real row number
+    ct.delete_rows(t, ct.select(t, sample_name=""), decision="D-001")
+    assert [(c["kind"], c["row"]) for c in ct.CHANGES] == [("row deleted", "3")]
+
+
+@pytest.mark.parametrize(
+    "files,asked,expected",
+    [
+        (["plate_1.tsv", "replate_1.tsv"], "plate_1.tsv", "plate_1.tsv"),
+        (
+            ["5e17a0c3-2023-04-02_batch_a.tsv"],
+            "2023-04-02_batch_a.tsv",
+            "5e17a0c3-2023-04-02_batch_a.tsv",
+        ),
+        (["replate_1.tsv"], "plate_1.tsv", "found 0"),
+        (
+            ["5e17a0c3-2023-04-02_b.tsv", "deadbeef-2023-04-02_b.tsv"],
+            "2023-04-02_b.tsv",
+            "found 2",
+        ),
+    ],
+)
+def test_find_input(tmp_path, files, asked, expected):
+    for f in files:
+        (tmp_path / f).write_text("x")
+    if expected.startswith("found"):
+        with pytest.raises(Stop, match=expected):
+            ct.find_input(tmp_path, asked)
+    else:
+        assert ct.find_input(tmp_path, asked) == tmp_path / expected
 
 
 # ---------------------------------------------------------------------------
@@ -264,6 +387,25 @@ def test_normalize_whitespace(write):
         "value changed",
         "value changed",
     ]
+
+
+def test_normalize_whitespace_unusual_spaces(write):
+    t = load(
+        write,
+        [
+            ["sample_name", "a\u200b"],
+            ["S1", "x\u2009y"],
+            ["S2", "\ufeffz"],
+            ["S3", "b\u3000\u00a0c "],
+        ],
+    )
+    ct.normalize_whitespace(t, decision="D-010")
+    expected = pd.DataFrame(
+        {"sample_name": ["S1", "S2", "S3"], "a": ["x y", "z", "b c"]},
+        index=["T|row 2", "T|row 3", "T|row 4"],
+        dtype=str,
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
 
 
 def test_stack(write):

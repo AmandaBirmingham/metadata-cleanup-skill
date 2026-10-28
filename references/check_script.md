@@ -10,7 +10,8 @@ output files (SKILL.md, Phase 2).
   the column profile (Stage 3) and the checks in `table_checks.md` that
   apply to any study. Import it; how to call it is at the top of the file.
   Pass the batch columns agreed with the scientist as `batch_columns=[…]`
-  (see "Triage" in `table_checks.md`).
+  (see "Triage" in `table_checks.md`), and any columns approved for the
+  coded fallback as `fallback_columns=[…]` (see "Judgment review").
   Start `check_script.py` with a copy of the dependency block (the
   `# /// script` lines) at the top of `metadata_profile.py`, followed by
   these lines, with `<skill>` replaced by the skill's absolute base
@@ -29,9 +30,11 @@ check is added.
 
 ## Reading and writing files
 
-Read the files exactly as the cleanup script does, and write the findings
-file the same way it writes TSV (see "Helper layer" in `cleanup_script.md`):
-every cell as text, nothing converted, quote characters kept.
+`metadata_profile.py` reads files with the cleanup template's own reader, so
+the check script sees the same rows, cells and row numbers as the cleanup
+script. The findings file is written the same way the cleanup script writes
+TSV (see "Helper layer" in `cleanup_script.md`): every cell as text, nothing
+converted, quote characters kept.
 
 ## Checks
 
@@ -46,7 +49,7 @@ correction in the decision log as a decision that changes no data.
 
 ## Outputs
 
-Each run writes two new files, named with the run's timestamp:
+Each run writes three new files, named with the run's timestamp:
 
 - **Profile** (`profile_<timestamp>.html`), for the scientist to read: for
   every column, counts of filled, empty and distinct values; for numeric
@@ -56,7 +59,15 @@ Each run writes two new files, named with the run's timestamp:
   wrong, with the check ID and description, the file, the spreadsheet row
   (header = row 1), the column, the sample ID, the value, and a note. A check
   that finds nothing still gets one row saying so, so "checked, nothing
-  found" can be told apart from "not checked".
+  found" can be told apart from "not checked". The S3-18 rows are not
+  problems: one per column, they say how to cover its values in the
+  judgment review (`table_checks.md`). In every row, a value or note in a
+  cell that the PII checks (S3-05, S3-06) cover is hidden, so PII the code
+  found is not read.
+- **Review** (`review_<timestamp>.tsv`), for you: the values for the
+  judgment review, one line per distinct value of each column, with its
+  slice number, file, column letter, column, count and first rows. PII the
+  code found is left out.
 
 ## When to run it
 

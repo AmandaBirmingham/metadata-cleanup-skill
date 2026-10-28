@@ -127,8 +127,10 @@ but every suggested ID or term must be checked against the bundled files.
 
 A last check on the merged result. Its purpose is to catch errors introduced
 during handling, not to repeat Stage 3. Run the check script on the latest
-draft outputs (the checks below are part of its generic part), then
-spot-check a few records with the scientist.
+draft outputs (the checks below are part of its generic part), and carry
+out the judgment review (`table_checks.md`) on its findings; this is what
+catches an ENA term or sample type mistyped in a decision. Then spot-check a
+few records with the scientist.
 
 - No duplicate sample IDs.
 - Every required field filled for every sample.

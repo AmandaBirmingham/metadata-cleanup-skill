@@ -4,6 +4,7 @@ import re
 
 import pytest
 
+import cleanup_template as ct
 import metadata_profile as mp
 from metadata_profile import CheckRun, Table
 
@@ -194,6 +195,21 @@ def test_csv_parsed_standard_way(write):
     assert t.rows[1]["note"] == "line one\nline two"
 
 
+def test_table_unreadable_suffix_stops(write):
+    with pytest.raises(mp.Stop, match="cannot read .xlsx"):
+        Table(write("t.xlsx", None, raw=b"PK\x03\x04"))
+
+
+def test_table_row_numbers_match_cleanup_template(write):
+    p = write("t.tsv", "sample_name\ta\nS1\tx\n\nS2\ty\n")
+    profile_lines = [r.line for r in Table(p).rows]
+    cleanup_rows = list(ct.Table("T", p).df.index)
+    assert (profile_lines, cleanup_rows) == (
+        [2, 3, 4],
+        ["T|row 2", "T|row 3", "T|row 4"],
+    )
+
+
 def test_duplicate_and_blank_column_names_kept_apart(write):
     t = table(write, [["sample_name", "status", "status", ""], ["S1", "a", "b", "c"]])
     assert t.keys == ["sample_name", "status", "status [col C]", "[col D]"]
@@ -225,7 +241,8 @@ def test_crlf_bom_and_latin1(write):
 CLEAN = [["sample_name", "a"], ["S1", "x"], ["S2", "y"]]
 
 
-@pytest.mark.parametrize("cid", [c for c, _, _ in mp.GENERIC_CHECKS])
+# S3-18 lists values for judgment review, so it has rows even for a clean file
+@pytest.mark.parametrize("cid", [c for c, _, _ in mp.GENERIC_CHECKS if c != "S3-18"])
 def test_clean_file_has_no_findings(write, cid):
     assert hits([write("clean.tsv", CLEAN)], cid, as_of="2026-10-22") == []
 
@@ -440,6 +457,7 @@ def test_s3_07_gene_dates(write):
             )
         ],
         "S3-07",
+        fallback_columns=["gene"],
     )
     assert [x[7] for x in h] == ["1-Mar", "Sep-02"]
 
@@ -529,8 +547,39 @@ def test_s3_14_near_duplicates(write):
         ["S3", "Treatment_Arm_2"],
         ["S4", "Treatment_Arm_3"],
     ]
-    h = hits([write("t.tsv", rows)], "S3-14")
+    h = hits([write("t.tsv", rows)], "S3-14", fallback_columns=["status"])
     assert len(h) == 1 and "Healthy" in h[0][8]  # Arm_2 / Arm_3 differ only in digits
+
+
+def test_s3_14_large_column(write):
+    rows = [["sample_name", "status"]] + [
+        [f"S{i}", f"site {i:03d}x"] for i in range(60)
+    ]
+    rows += [["S60", "Healthy"], ["S61", "Heathy"]]
+    h = hits([write("t.tsv", rows)], "S3-14", fallback_columns=["status"])
+    assert [x[8] for x in h] == [
+        "Healthy=1; Heathy=1 (typo, or genuinely different? ask)"
+    ]
+
+
+@pytest.mark.parametrize("cid", ["S3-07", "S3-14"])
+def test_s3_07_14_only_on_fallback_columns(write, cid):
+    rows = [
+        ["sample_name", "gene"],
+        ["S1", "1-Mar"],
+        ["S2", "Healthy"],
+        ["S3", "Heathy"],
+    ]
+    assert hits([write("t.tsv", rows)], cid) == []
+
+
+def test_fallback_column_unknown_refused(write):
+    with pytest.raises(ValueError, match="fallback_columns"):
+        CheckRun(
+            [str(write("t.tsv", CLEAN))],
+            sample_id="sample_name",
+            fallback_columns=["plate"],
+        )
 
 
 def test_s3_15_duplicate_ids_across_tables(write):
@@ -568,24 +617,129 @@ LONG_NOTE = "Participant reported the tube leaked slightly in transit"
 OTHER_NOTE = "Collected two days late because of a holiday weekend closure"
 
 
-def test_s3_18_long_text_listed_once_per_value(write):
+def review_lines(paths, column, **kw):
+    """Review-file lines for one column, as (value, count, rows)."""
+    run = CheckRun([str(p) for p in paths], sample_id="sample_name", **kw)
+    return [(x[4], x[5], x[6]) for x in run.review_lines() if x[3] == column]
+
+
+def test_review_lines_list_each_distinct_value_once(write):
     rows = [["sample_name", "notes"]] + [[f"S{i}", "not provided"] for i in range(20)]
-    rows += [["S20", LONG_NOTE], ["S21", OTHER_NOTE], ["S22", LONG_NOTE]]
-    h = hits([write("t.tsv", rows)], "S3-18")
-    found = [(x[3], x[5], x[7], x[8]) for x in h]
-    assert found == [
-        ("22", "notes", LONG_NOTE, "rows 22, 24"),
-        ("23", "notes", OTHER_NOTE, "row 23"),
+    rows += [["S20", LONG_NOTE], ["S21", "Jo"], ["S22", LONG_NOTE], ["S23", ""]]
+    assert review_lines([write("t.tsv", rows)], "notes") == [
+        (LONG_NOTE, "2", "22, 24"),
+        ("Jo", "1", "23"),
     ]
 
 
-def test_s3_18_ignores_short_values_and_long_values_without_spaces(write):
+def test_review_lines_numeric_column_lists_only_non_numbers(write):
+    rows = [["sample_name", "depth"]] + [[f"S{i}", str(i)] for i in range(30)]
+    rows += [["S30", "unknwn"], ["S31", "5m"]]
+    assert review_lines([write("t.tsv", rows)], "depth") == [
+        ("unknwn", "1", "32"),
+        ("5m", "1", "33"),
+    ]
+
+
+def test_review_lines_list_every_value_and_shorten_row_lists(write):
+    rows = [["sample_name", "notes"]] + [[f"S{i}", f"note {i}"] for i in range(300)]
+    rows += [[f"T{i}", "same"] for i in range(12)]
+    found = review_lines([write("t.tsv", rows)], "notes")
+    assert (len(found), found[-1]) == (
+        301,
+        ("same", "12", "302, 303, 304, 305, 306, 307, 308, 309, 310, 311 (+2 more)"),
+    )
+
+
+def test_review_lines_leave_out_pii(write):
     rows = [
-        ["sample_name", "a", "b"],
-        ["S1", "short note here", "x" * 60],
-        ["S2", "another short one", "y" * 60],
+        ["sample_name", "notes", "dob"],
+        ["S1", "call 858-534-2230", "1984-03-12"],
+        ["S2", "fine", "1990-01-01"],
     ]
-    assert hits([write("t.tsv", rows)], "S3-18") == []
+    p = write("t.tsv", rows)
+    assert (review_lines([p], "notes"), review_lines([p], "dob")) == (
+        [("fine", "1", "3")],
+        [],
+    )
+
+
+def test_review_lines_slices_and_s3_18_coverage(write, monkeypatch):
+    monkeypatch.setattr(mp, "REVIEW_SLICE_CHARS", 60)
+    monkeypatch.setattr(mp, "REVIEW_DIRECT_MAX_CHARS", 100)
+    monkeypatch.setattr(mp, "REVIEW_MAX_SLICES", 2)
+    rows = [["sample_name", "a", "b"]]
+    rows += [[f"S{i}", f"alpha{i}", f"beta{i}"] for i in range(4)]
+    p = write("t.tsv", rows)
+    run = CheckRun([str(p)], sample_id="sample_name")
+    run.generic_checks()
+    slices = [(x[0], x[3]) for x in run.review_lines()]
+    summary = [(h[5], h[8]) for h in run.run() if h[0] == "S3-18"]
+    assert (slices, summary) == (
+        [
+            ("1", "sample_name"),
+            ("1", "sample_name"),
+            ("2", "sample_name"),
+            ("2", "sample_name"),
+            ("3", "a"),
+            ("3", "a"),
+            ("4", "a"),
+            ("4", "a"),
+            ("5", "b"),
+            ("5", "b"),
+            ("6", "b"),
+            ("6", "b"),
+        ],
+        [
+            (
+                "sample_name",
+                "4 values in the review file, slices 1-2: split across helpers",
+            ),
+            ("a", "4 values in the review file, slices 3-4: split across helpers"),
+            ("b", "4 values in the review file, slices 5-6: split across helpers"),
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "direct,max_slices,advice",
+    [
+        (10_000, 50, "read directly"),
+        (10, 50, "split across helpers"),
+        (10, 0, "too large: fallback"),
+    ],
+)
+def test_s3_18_coverage_advice(write, monkeypatch, direct, max_slices, advice):
+    monkeypatch.setattr(mp, "REVIEW_DIRECT_MAX_CHARS", direct)
+    monkeypatch.setattr(mp, "REVIEW_MAX_SLICES", max_slices)
+    p = write("t.tsv", [["sample_name", "a"], ["S1", "x"]])
+    h = hits([p], "S3-18")
+    assert [x[8].split(": ", 1)[1] for x in h] == [advice, advice]
+
+
+# ---------------------------------------------------------------------------
+# PII the code found is hidden from every finding
+# ---------------------------------------------------------------------------
+def test__finding_hides_pii_named_column(write):
+    p = write("t.tsv", [["sample_name", "dob"], ["S1", "1984-03-12 "]])
+    found = [h[3:9] for h in hits([p], "S1-02") + hits([p], "S3-05")]
+    assert found == [
+        ("2", "B", "dob", "S1", "", mp.PII_HIDDEN),
+        ("", "B", "dob", "", "", "column name suggests PII or PHI (see pii.md)"),
+    ]
+
+
+def test__finding_hides_pii_matched_cell(write):
+    p = write(
+        "t.tsv",
+        [["sample_name", "notes"], ["S1", "call 858-534-2230 "], ["S2", "fine "]],
+    )
+    found = [h[3:9] for h in hits([p], "S1-02") + hits([p], "S3-06")]
+    assert found == [
+        ("2", "B", "notes", "S1", "", mp.PII_HIDDEN),
+        ("3", "B", "notes", "S2", "fine ", ""),
+        ("2", "B", "notes", "S1", "", "phone number pattern"),
+    ]
 
 
 def batch_rows(odd_dates=True):
@@ -745,7 +899,7 @@ def test_study_specific_check(write):
     assert h[0] == "X-01" and h[3] == "2" and h[4] == "C" and h[6] == "S1"
 
 
-def test_range_check_and_suggestions(write):
+def test_range_check(write):
     p = write(
         "t.tsv",
         [
@@ -755,8 +909,6 @@ def test_range_check_and_suggestions(write):
         ],
     )
     run = CheckRun([str(p)], sample_id="sample_name")
-    sugg = {c: (lo, hi) for c, lo, hi, _ in run.suggest_range_columns()}
-    assert sugg == {"age": (0, 90), "bmi": (14, 60), "depth_m": (0, None)}
     run.range_check("age", 0, 90)
     (h,) = run.run()
     assert h[0] == "R-age" and h[7] == "95" and h[1] == "age below 0 or above 90"
@@ -800,7 +952,7 @@ def test_kind_correction_changes_checks_and_profile(write, tmp_path):
     assert len(hits([p], "S3-11")) == 1
     assert hits([p], "S3-11", kinds={"station": "categorical"}) == []
     run = CheckRun([str(p)], sample_id="sample_name", kinds={"station": "categorical"})
-    _, prof = run.write(tmp_path / "out", "t1")
+    _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert "set by scientist: <b>categorical (numbers)</b>" in page
     assert "guess: <b>identifier</b>" in page
@@ -813,7 +965,7 @@ def test_write_outputs_and_refuse_overwrite(write, tmp_path):
     p = write("t.csv", 'sample_name,note\nS1,"tab\there"\n')
     run = CheckRun([str(p)], sample_id="sample_name")
     run.generic_checks()
-    f, prof = run.write(tmp_path / "out", "t1")
+    f, prof, rev = run.write(tmp_path / "out", "t1")
     lines = f.read_text().split("\n")
     assert lines[0].split("\t") == [
         "check",
@@ -831,7 +983,19 @@ def test_write_outputs_and_refuse_overwrite(write, tmp_path):
         "tab\\there" in line for line in lines
     )  # tabs inside values shown, not split
     assert prof.exists()
+    assert rev.read_text().split("\n")[0].split("\t") == [
+        "slice",
+        "file",
+        "column_letter",
+        "column",
+        "value",
+        "count",
+        "rows",
+    ]
     with pytest.raises(FileExistsError):
+        run.write(tmp_path / "out", "t1")
+    rev.unlink()
+    with pytest.raises(FileExistsError):  # the other two still exist
         run.write(tmp_path / "out", "t1")
 
 
@@ -842,7 +1006,7 @@ def test_profile_content(write, tmp_path):
         for i in range(60)
     ]
     run = CheckRun([str(write("t.tsv", rows))], sample_id="sample_name")
-    _, prof = run.write(tmp_path / "out", "t1")
+    _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert (
         "guess: <b>numeric</b>" in page and "mean 49.5" in page
@@ -862,7 +1026,7 @@ def test_tables_with_same_layout_pooled(write, tmp_path):
     b = write("b.tsv", [["sample_name", "x"], ["S2", "2"]])
     c = write("c.tsv", [["sample_name", "y"], ["S3", "3"]])
     run = CheckRun([str(a), str(b), str(c)], sample_id="sample_name")
-    _, prof = run.write(tmp_path / "out", "t1")
+    _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert (
         "Tables: 2 files, 2 rows, 2 columns" in page
@@ -895,7 +1059,9 @@ def test_structural_checks_ignore_null_terms_in_number_columns(write):
     p = write("t.tsv", [["sample_name", "age"], ["S1", "45"], ["S2", "not applicable"]])
     run = CheckRun([str(p)], sample_id="sample_name")
     run.generic_checks()
-    assert [h for h in run.run() if h[8] != "no findings"] == []
+    # S3-18 lists values for judgment review, so its rows are not problems
+    found = [h for h in run.run() if h[8] != "no findings" and h[0] != "S3-18"]
+    assert found == []
 
 
 def test_structural_checks_keep_quotes_literal(write):

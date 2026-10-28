@@ -8,6 +8,12 @@ in combination — and **protected health information (PHI)** as defined by
 HIPAA (the 18 identifiers below). Do not flag ordinary subject metadata merely
 because it describes a person.
 
+The check script looks for PII first, by column name (S3-05) and by value
+pattern (S3-06), and hides what it finds from every finding, so that PII
+which code can recognize is never read. Everything else is read in the
+judgment review (`table_checks.md`), where these lists guide what to look
+for but do not limit it.
+
 If you find possible PII or PHI, tell the scientist plainly what you
 found and where, and ask how to handle it. Removing or replacing it is a
 decision like any other.

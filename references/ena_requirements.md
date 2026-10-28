@@ -42,15 +42,16 @@ needs in either case.
   alternate_label, is_obsolete, replaced_by_term_id, obsoletion_kind). It is
   compressed and large (about 3.9 million rows, including obsolete IDs and
   their replacements): search it with a streaming command, never load it
-  whole, until `scripts/taxon_lookup.py` *(planned; see BACKLOG.md)* exists.
-  For an exact name,
+  whole. For an exact name,
   `gzip -dc <skill>/assets/ncbi_taxonomy.tsv.gz | grep -i $'\t<name>\t'`;
   for a partial name, search the whole line (`gzip -dc … | grep -i 'macaca'`)
   and then narrow down.
 - If a taxon ID already in the scientist's file is obsolete, propose the
   replacement from replaced_by_term_id.
 - If the network is available, confirm with ENA's taxonomy service that the
-  taxon is submittable, since ENA rejects taxa that are not. If ENA can't be
+  taxon is submittable, since ENA rejects taxa that are not:
+  `https://www.ebi.ac.uk/ena/taxonomy/rest/tax-id/<taxon ID>` returns JSON
+  whose `submittable` field is `"true"` or `"false"`. If ENA can't be
   reached, say so and record the taxon as unconfirmed in the decision log.
 - Host taxon ID special values: free-living samples → `not applicable`; most
   controls (except some positive controls) → `missing: control sample`.
@@ -75,8 +76,8 @@ Biomes are themselves environmental systems in ENVO, so a biome also has
 is_env_system = true. *(To confirm against current MIxS guidance: which ENVO
 branches each field should draw from; see BACKLOG.md.)*
 
-Search it with `scripts/envo_lookup.py` *(planned; see BACKLOG.md)* or grep.
-Never suggest an obsolete term. If the scientist's file contains one, propose
+Search it directly, filtering on is_biome, is_env_system or is_env_material
+for the field in question and on is_obsolete. Never suggest an obsolete term. If the scientist's file contains one, propose
 its replacement.
 
 ## ENA null values
@@ -84,5 +85,4 @@ its replacement.
 These are a last resort (SKILL.md, rule 8). The accepted terms are in
 `assets/ena_null_terms.tsv` (columns: term, ena_definition, plain_meaning);
 no other term is accepted. Explain each candidate to the scientist with its
-plain meaning, and let them choose. *(Planned: a cleanup-script helper for
-setting an ENA null term; see BACKLOG.md.)*
+plain meaning, and let them choose.

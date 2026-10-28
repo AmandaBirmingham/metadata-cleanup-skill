@@ -36,6 +36,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -60,6 +61,14 @@ def decisions(t):
 # ===========================================================================
 # Helper layer: do not edit
 # ===========================================================================
+READABLE_SUFFIXES = (".tsv", ".txt", ".csv")  # .csv is parsed as CSV, the rest as TSV
+# Space characters other than the ordinary space: shown as a space, or invisible
+WIDE_SPACES = "\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000"
+ZERO_WIDTH = "\u200b\ufeff"
+UNUSUAL_SPACE = re.compile(f"[{WIDE_SPACES}{ZERO_WIDTH}]")
+SPACES = f"[ {WIDE_SPACES}]+"
+
+
 class Stop(Exception):
     """A problem that must be fixed before the script can go on."""
 
@@ -78,6 +87,78 @@ def column_letter(index0: int) -> str:
 def display_name(path: Path) -> str:
     """The file name without an 8-hex-digit prefix that an upload may add."""
     return re.sub(r"^[0-9a-f]{8}-(?=\d)", "", path.name)
+
+
+@dataclass
+class RawTable:
+    """A file's rows of cells exactly as written, plus facts about the file."""
+
+    kind: str  # "csv" or "tsv"
+    text: str
+    bom: bool
+    utf8: bool  # False: not valid UTF-8, so text was decoded as Latin-1
+    crlf_lines: int
+    records: list[list[str]]  # a blank line is an empty list
+
+
+def read_file(path: Path) -> RawTable:
+    """Every cell as text: TSV split on LF and TAB with quotes kept, CSV parsed
+    the standard way. Stops on a file type it cannot read."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix not in READABLE_SUFFIXES:
+        raise Stop(
+            f"{display_name(path)}: cannot read {suffix or 'unnamed'} files, only "
+            + ", ".join(READABLE_SUFFIXES)
+        )
+    # Decode as UTF-8, falling back to Latin-1 so the file can still be inspected
+    raw = path.read_bytes()
+    try:
+        text, utf8 = raw.decode("utf-8-sig"), True
+    except UnicodeDecodeError:
+        text, utf8 = raw.decode("latin-1"), False
+    # Split into rows of cells; a blank line has no cells in either format
+    if suffix == ".csv":
+        kind = "csv"
+        records = list(csv.reader(io.StringIO(text, newline="")))
+    else:
+        kind = "tsv"
+        lines = text.split("\n")
+        if lines and lines[-1] == "":
+            lines = lines[:-1]
+        lines = [line[:-1] if line.endswith("\r") else line for line in lines]
+        records = [line.split("\t") if line else [] for line in lines]
+    raw_table = RawTable(
+        kind=kind,
+        text=text,
+        bom=raw.startswith(b"\xef\xbb\xbf"),
+        utf8=utf8,
+        crlf_lines=text.count("\r\n"),
+        records=records,
+    )
+    return raw_table
+
+
+def unique_column_names(header: list[str]) -> list[str]:
+    """Each name made unique where names repeat or are blank ("status [col C]",
+    "[col D]"), so no column is lost."""
+    seen = Counter(header)
+    names = [
+        h
+        if h.strip() and (seen[h] == 1 or i == header.index(h))
+        else (
+            f"{h} [col {column_letter(i)}]"
+            if h.strip()
+            else f"[col {column_letter(i)}]"
+        )
+        for i, h in enumerate(header)
+    ]
+    return names
+
+
+def one_line(v: str) -> str:
+    """A value for one TSV cell: tabs and line breaks shown as \\t, \\r, \\n."""
+    return v.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
 
 
 class Table:
@@ -99,61 +180,28 @@ class Table:
             return
         path = Path(path)
         self.path, self.file = path, display_name(path)
-        raw = path.read_bytes()
-        try:
-            raw.decode("utf-8")
-        except UnicodeDecodeError:
+        raw_table = read_file(path)
+        if not raw_table.utf8:
             raise Stop(
                 f"{self.file} is not valid UTF-8; converting it is a decision to make first"
             )
-        tsv = path.suffix.lower() != ".csv"
-        # Count each row's cells first: pandas silently pads short rows.
-        text = raw.decode("utf-8-sig")
-        records = (
-            [line.rstrip("\r").split("\t") for line in text.split("\n") if line != ""]
-            if tsv
-            else [r for r in csv.reader(io.StringIO(text, newline=""))]
-        )
+        records = raw_table.records
+        if not records or not records[0]:
+            raise Stop(f"{self.file} has no header row; fix the file first")
+        # Keep blank lines as rows of empty cells; any other short or long row stops
+        width = len(records[0])
+        rows = []
         for i, r in enumerate(records[1:], start=2):
-            if len(r) != len(records[0]):
+            if not r:
+                r = [""] * width
+            elif len(r) != width:
                 raise Stop(
                     f"{self.file}: row {i} has {len(r)} cells but the header has "
-                    f"{len(records[0])}; fix the file first"
+                    f"{width}; fix the file first"
                 )
-        try:
-            df = pd.read_csv(
-                io.BytesIO(raw),
-                sep="\t" if tsv else ",",
-                header=None,
-                dtype=str,
-                keep_default_na=False,
-                na_filter=False,
-                encoding="utf-8-sig",
-                quoting=csv.QUOTE_NONE if tsv else csv.QUOTE_MINIMAL,
-            )
-        except pd.errors.ParserError as e:
-            raise Stop(
-                f"{self.file}: a row has more cells than the header ({e}); fix the file first"
-            )
-        if df.isna().any().any():
-            bad = df.index[df.isna().any(axis=1)][0] + 1
-            raise Stop(
-                f"{self.file}: row {bad} has fewer cells than the header; fix the file first"
-            )
-        header = list(df.iloc[0])
-        seen = Counter(header)
-        names = [
-            h
-            if h.strip() and (seen[h] == 1 or i == header.index(h))
-            else (
-                f"{h} [col {column_letter(i)}]"
-                if h.strip()
-                else f"[col {column_letter(i)}]"
-            )
-            for i, h in enumerate(header)
-        ]
-        df = df.iloc[1:].copy()
-        df.columns = names
+            rows.append(r)
+        names = unique_column_names(records[0])
+        df = pd.DataFrame(rows, columns=names, dtype=str)
         df.index = [f"{name}|row {i}" for i in range(2, len(df) + 2)]
         self.df = df
         self._col_ids = {n: column_letter(i) for i, n in enumerate(names)}
@@ -373,17 +421,16 @@ def delete_rows(table: Table, rows: RowSet, decision: str) -> None:
     table.df = table.df.drop(index=rows.index)
 
 
-SPACES = r"[ \u00a0]+"
-
-
 def normalize_whitespace(
     table: Table, decision: str, columns: list[str] | None = None
 ) -> None:
-    """Strip leading and trailing spaces and collapse runs of spaces (including
-    non-breaking spaces) to one, in column names and values."""
+    """Strip leading and trailing spaces and collapse runs of spaces to one, in
+    column names and values. Unusual spaces count as spaces; zero-width
+    characters are removed."""
 
     def clean(s: pd.Series) -> pd.Series:
-        return s.str.replace(SPACES, " ", regex=True).str.strip(" ")
+        visible = s.str.replace(f"[{ZERO_WIDTH}]", "", regex=True)
+        return visible.str.replace(SPACES, " ", regex=True).str.strip(" ")
 
     names = pd.Series(list(table.df.columns))
     for old, new in zip(names, clean(names)):
@@ -568,13 +615,7 @@ def write_changes(path: Path) -> None:
     with open(path, "w", encoding="utf-8", newline="") as fh:
         fh.write("\t".join(CHANGE_COLUMNS) + "\n")
         for c in CHANGES:
-            fh.write(
-                "\t".join(
-                    str(c[k]).replace("\t", "\\t").replace("\n", "\\n")
-                    for k in CHANGE_COLUMNS
-                )
-                + "\n"
-            )
+            fh.write("\t".join(one_line(str(c[k])) for k in CHANGE_COLUMNS) + "\n")
 
 
 def previous_draft(outdir: Path, stem: str, timestamp: str, original: Path) -> Path:
@@ -615,7 +656,7 @@ def find_input(inputs: Path, name: str) -> Path:
     exact = inputs / name
     if exact.exists():
         return exact
-    found = [p for p in inputs.iterdir() if p.name.endswith(name)]
+    found = [p for p in inputs.iterdir() if display_name(p) == name]
     if len(found) != 1:
         raise Stop(f"expected one file named {name!r} in {inputs}, found {len(found)}")
     return found[0]

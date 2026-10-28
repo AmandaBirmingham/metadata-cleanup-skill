@@ -10,11 +10,62 @@ samples), most findings will be the same for all of them. Report such a
 finding once, for all the tables, and give per-table detail only where the
 tables differ.
 
+## Judgment review
+
+Coded checks find only what fixed rules can describe. After every check run,
+before triage, read every value in the review file
+(`review_<timestamp>.tsv`): one line per distinct value of each column, with
+its count and first rows. It leaves out empty cells, ENA null terms, numbers
+in numeric columns and anything the code's PII checks found. Every other
+value must be read. For each value, ask:
+
+- Could it identify a person, alone or with other values (see `pii.md`)?
+- Was it meant as a missing value (`unknwn`, `-`, `nicht angegeben`), and so
+  possibly as one of the ENA terms in `assets/ena_null_terms.tsv`?
+- Does it fit its column?
+- Is it the same thing as another value written differently (`stool` and
+  `feces`, `wk2` and `two weeks`)?
+- Was it meant as one of the sample types in `assets/sample_types.tsv`?
+- Does it look damaged by a spreadsheet in a way no coded check reports?
+- Do whole columns look out of step with each other, as if some were sorted
+  separately (partial-sort damage)?
+- Does it hold information that belongs in a field of its own (`feces,
+  frozen -80, subject 12`)?
+
+`pii.md` and the two asset files are references, not checklists: flag
+anything that looks wrong, whether or not it matches a listed pattern. Each
+problem you find joins the findings for triage, cited by its review-file
+line. To list every row of a value (a line shows only the first few), add a
+study-specific check for it and rerun.
+
+### Covering every value
+
+The findings file has one S3-18 row per column, giving how many values it
+has in the review file, which slices they are in, and how to cover it:
+
+- **read directly:** the whole review file is small enough to read yourself.
+- **split across helpers:** give each slice to a helper agent (subagent)
+  with the questions above. A helper sees only its slices, never the input
+  files, and reports the slice numbers it read and the values it flags, with
+  their review-file lines. Check that every slice was reported.
+- **too large: fallback:** the column is too large even for helpers. It gets
+  coded checks instead (S3-07 gene names turned into dates, S3-14 near-
+  duplicates), which are much less thorough than reading.
+
+Before using helpers or a fallback, tell the scientist in plain words what
+will happen and why, and wait for their approval. If helper agents are not
+available, every column that needs them is a fallback. For a fallback, pass
+the approved columns to the check script as `fallback_columns=[…]` and rerun
+it. Record how each column was covered (read, read by helpers, or fallback)
+in the decision log as a decision that changes no data, without counts, and
+name every fallback column in the final summary.
+
 ## Triage
 
-After the first check run, and before raising any finding, work through the
-whole findings file. The stages below say what each check looks for; triage
-decides the order in which the scientist hears about it.
+After the first check run and the judgment review, and before raising any
+finding, work through the whole findings file and the review's problems. The
+stages below say what each check looks for; triage decides the order in
+which the scientist hears about it.
 
 1. **Group.** Findings that fall on the same rows, or within the same
    batch-like group (input file, package, plate, manifest, storage unit, or
@@ -57,8 +108,9 @@ decides the order in which the scientist hears about it.
   This catches some values Excel has already converted. It cannot help with
   a CSV that Excel has already saved; there, look for the patterns listed in
   Stage 3. *(Neither bundled script reads Excel yet; see BACKLOG.md. Until
-  they do, write the reading code in the check and cleanup scripts, as
-  described here.)*
+  they do, ask the scientist to export each tab as TSV or CSV, and treat the
+  exports as new originals; see "New or replacement input files" in
+  `cleanup_script.md`.)*
 
 ## Stage 1 — String cleaning
 
@@ -132,9 +184,8 @@ inference:
 - Columns containing only empty or null values (including ENA null terms).
 - PII in unexpected places. Birthdates have turned up as 4–6 digit numbers in a
   column labeled "zipcode".
-- Long free text in any column, whatever its guessed kind: the check script
-  lists each distinct value of 40 or more characters containing a space
-  (S3-18). Read every one for PII/PHI before raising the first finding.
+- PII the code cannot recognize, such as names, initials or places, found
+  in the judgment review.
 
 Sample values from throughout the column, never only the first or last rows:
 files are often sorted, which makes a column look uniform when it isn't.
@@ -148,11 +199,13 @@ files are often sorted, which makes a column look uniform when it isn't.
 ### Probable categorical columns
 
 - List every distinct value with its frequency.
-- Gene names converted to dates by Excel (`1-Mar`, `2-Sep`, `1-Dec`).
+- Gene names converted to dates by Excel (`1-Mar`, `2-Sep`, `1-Dec`); found
+  in the judgment review, or by S3-07 in fallback columns.
 - Inconsistencies:
   - mixed case for the same concept (Female, female, FEMALE);
   - mixed abbreviations (F, f, fem);
-  - near-duplicates that *might* be typos (Healthy / Heathy; Arm / Arrm).
+  - near-duplicates that *might* be typos (Healthy / Heathy; Arm / Arrm);
+    found in the judgment review, or by S3-14 in fallback columns.
 - **Near-duplicates need domain knowledge.** IIB and IIIB look like typos of
   each other but are different cancer stages. Always ask.
 
@@ -168,11 +221,12 @@ files are often sorted, which makes a column look uniform when it isn't.
 - Biologically implausible values: negative concentrations, volumes or
   depths; zeros where zero is impossible. What is plausible depends on the
   domain, so ask: in many but not all human studies, age > 90 or = 0 and/or
-  BMI < 14 or > 60 are implausible. Range checks agreed in the study
-  discussion are already in the check script. For other columns, when going
-  through the profile with the scientist, use `suggest_range_columns()` to
-  find columns whose names suggest a range and ask about each; add
-  `range_check()` for those they agree to, and rerun the check script.
+  BMI < 14 or > 60 are implausible; an age over 89 is also a HIPAA
+  identifier. Range checks agreed in the study discussion are already in the
+  check script. For every other numeric column, when going through the
+  profile with the scientist, propose a plausible range from what the column
+  measures and ask about it; add `range_check()` for those they agree to,
+  and rerun the check script.
 
 ### Probable date columns
 
@@ -209,7 +263,8 @@ without approval):
 - **Shorthand.** Week 4, W4, wk4 → Week 4, after confirming they are the same
   timepoint.
 - **Placeholders → ENA null terms.** For example, body_site = not applicable
-  for controls, blanks or samples with no host.
+  for controls, blanks or samples with no host. Values meant as missing are
+  found in the judgment review.
 - **Leave unclear values alone.** 1, 2, 3 in a sex column: do not guess.
 - **Offer values already in use.** When a value needs replacing, offer the
   values the file already uses for the same thing before proposing a new

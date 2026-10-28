@@ -10,8 +10,9 @@ the work, so the script must be readable without the skill installed.
 
 Copy `scripts/cleanup_template.py` to `cleanup_draft.py`, then edit only
 `INPUTS`, `SAMPLE_ID` and the `decisions()` function. Everything after
-`# === END OF DECISIONS ===` is the helper layer and stays as it is. How to
-run the script is in the text at the top of the template.
+`# === END OF DECISIONS ===` is the helper layer and stays as it is (for the
+one exception, see "Continuing earlier work" in SKILL.md). How to run the
+script is in the text at the top of the template.
 
 ## Requirements
 
@@ -157,9 +158,7 @@ Available in the template:
 Not yet in the template (planned; see BACKLOG.md). Until each exists, write
 the code in the decision's block, meeting these requirements:
 
-- **setting an ENA null term:** only a term from `assets/ena_null_terms.tsv`;
-- **setting a sample type:** only an identifier from `assets/sample_types.tsv`;
-- **other formatting normalization** (numbers, booleans, null values);
+- **other formatting normalization** (numbers, booleans);
 - **merging,** in three forms (see Stage 7 in `merge_and_validation.md`):
   - **identifier-based:** link column, join type and expected cardinality
     checked;

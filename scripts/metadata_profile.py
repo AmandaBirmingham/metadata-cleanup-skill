@@ -2,6 +2,8 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #     "frictionless==5.19.1",
+#     "pandas==3.0.5",
+#     "rapidfuzz==3.14.6",
 # ]
 # ///
 """Generic part of the check script: column profile and generic checks.
@@ -24,7 +26,7 @@ with quoting off and every column read as text.
             if row["sample_type"] == "control" and row["env_material"] == "sea water":
                 yield row, "env_material"
 
-    run.write("outputs", "20261022-101500")   # profile_<ts>.html, findings_<ts>.tsv
+    run.write("outputs", "20261022-101500")   # profile, findings and review files
 
 A check is a function of one table that yields hits:
     (row, column)             a value in one cell
@@ -32,15 +34,15 @@ A check is a function of one table that yields hits:
     (None, column, note)      something about a whole column or the table
 "column" may be None, a column name, or several names joined by " = ".
 
-Reading: TSV files are read with every cell exactly as written (rows split on
-LF, cells on TAB; quote characters kept). CSV files are parsed the standard
-way, since quotes are part of the CSV format. Nothing is converted.
+Reading: files are read by cleanup_template.py's reader, so both scripts see
+the same rows: TSV with every cell exactly as written (rows split on LF, cells
+on TAB; quote characters kept), CSV parsed the standard way. Nothing is
+converted. pandas is in the dependency block because that module imports it.
 """
 
 from __future__ import annotations
 
 import csv
-import difflib
 import html
 import io
 import re
@@ -52,7 +54,18 @@ from pathlib import Path
 from typing import Callable, Iterable
 
 import frictionless
-from frictionless import Schema, fields as fl_fields, formats
+import frictionless.formats
+from rapidfuzz import fuzz, process
+
+from cleanup_template import (
+    UNUSUAL_SPACE,
+    Stop,  # noqa: F401  (re-exported: the reader raises it)
+    column_letter,
+    display_name,
+    one_line,
+    read_file,
+    unique_column_names,
+)
 
 NULL_TERMS_FILE = (
     Path(__file__).resolve().parent.parent / "assets" / "ena_null_terms.tsv"
@@ -63,7 +76,6 @@ NULL_TERMS = {
     for line in NULL_TERMS_FILE.read_text(encoding="utf-8").splitlines()[1:]
 }
 NAN_LIKE = {"nan", "NaN", "NAN", "None", "NULL", "null", "NA", "N/A", "n/a", "#N/A"}
-UNUSUAL_SPACE = re.compile("[\u00a0\u1680\u2000-\u200b\u202f\u205f\u3000\ufeff]")
 MONTHS = "jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec"
 GENE_DATE = re.compile(rf"(\d{{1,2}}-({MONTHS})|({MONTHS})-\d{{1,2}})", re.I)
 # Columns whose names mark them as labels (identifiers, codes), never numbers.
@@ -124,32 +136,23 @@ PII_VALUE = [
     ),
     ("email address", re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")),
 ]
-RANGE_SUGGESTIONS = [  # (column-name pattern, low, high, reason) -- suggestions only
-    (
-        re.compile(r"(^|_)age($|_)", re.I),
-        0,
-        90,
-        "age 0 or over 90 is unusual; over 89 is a HIPAA identifier",
-    ),
-    (
-        re.compile(r"(^|_)(bmi|body_mass_index)($|_)", re.I),
-        14,
-        60,
-        "BMI below 14 or above 60 is implausible",
-    ),
-    (
-        re.compile(r"(depth|volume|concentration|conc|weight|height|mass)", re.I),
-        0,
-        None,
-        "negative values are impossible",
-    ),
-]
 SCI_NOTE = (
     "written in scientific notation (spreadsheet damage?): digits may have been lost"
 )
 SCI_ID_NOTE = "identifier in scientific notation: digits are lost and cannot be recovered from this file"
-# Free text at least this long (and containing a space) is listed for a PII/PHI read
-LONG_TEXT_MIN_CHARS = 40
+# Review-file sizes, in characters: read directly when the whole file is at most
+# REVIEW_DIRECT_MAX_CHARS; otherwise each column is cut into slices of at most
+# REVIEW_SLICE_CHARS for helpers, and a column needing more than
+# REVIEW_MAX_SLICES slices falls back to coded checks. Rough first guesses.
+REVIEW_DIRECT_MAX_CHARS = 60_000
+REVIEW_SLICE_CHARS = 60_000
+REVIEW_MAX_SLICES = 50
+# A review-file line shows at most this many of a value's rows
+REVIEW_ROWS_SHOWN = 10
+# Values compared at once by S3-14, bounding its memory use
+FUZZY_BLOCK = 200
+# Shown in a finding in place of a value or note that may hold PII or PHI
+PII_HIDDEN = "(hidden: possible PII or PHI)"
 # A column counts as regularly written when other batches use at most this many shapes
 MAX_USUAL_SHAPES = 5
 
@@ -157,19 +160,6 @@ MAX_USUAL_SHAPES = 5
 # ---------------------------------------------------------------------------
 # Reading
 # ---------------------------------------------------------------------------
-def column_letter(index0: int) -> str:
-    s, i = "", index0 + 1
-    while i:
-        i, r = divmod(i - 1, 26)
-        s = chr(65 + r) + s
-    return s
-
-
-def display_name(path: Path) -> str:
-    """The file name without an 8-hex-digit prefix that an upload may add."""
-    return re.sub(r"^[0-9a-f]{8}-(?=\d)", "", path.name)
-
-
 class Row(dict):
     """One data row: column -> value, plus .line (spreadsheet row, header = 1)."""
 
@@ -181,42 +171,16 @@ class Table:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.name = display_name(self.path)
-        self.kind = "csv" if self.path.suffix.lower() == ".csv" else "tsv"
-        raw = self.path.read_bytes()
-        self.bom = raw.startswith(b"\xef\xbb\xbf")
-        try:
-            self.text = raw.decode("utf-8-sig")
-            self.utf8 = True
-        except UnicodeDecodeError:
-            self.text = raw.decode("latin-1")
-            self.utf8 = False
-        self.crlf_lines = self.text.count("\r\n")
-        if self.kind == "csv":
-            records = list(csv.reader(io.StringIO(self.text, newline="")))
-        else:
-            lines = self.text.split("\n")
-            if lines and lines[-1] == "":
-                lines = lines[:-1]
-            records = [
-                (line[:-1] if line.endswith("\r") else line).split("\t")
-                for line in lines
-            ]
+        raw_table = read_file(self.path)
+        self.kind, self.text, self.bom = raw_table.kind, raw_table.text, raw_table.bom
+        self.utf8, self.crlf_lines = raw_table.utf8, raw_table.crlf_lines
+        records = raw_table.records
         self.header = records[0] if records else []
-        # Column keys: the column name, made unique where names repeat or are
-        # blank ("status [col C]", "[col D]"), so no column is lost.
-        seen = Counter(self.header)
-        self.keys = [
-            c
-            if (c.strip() and seen[c] == 1) or (c.strip() and i == self.header.index(c))
-            else (
-                f"{c} [col {column_letter(i)}]"
-                if c.strip()
-                else f"[col {column_letter(i)}]"
-            )
-            for i, c in enumerate(self.header)
-        ]
+        # Column keys: the column name, made unique so no column is lost
+        self.keys = unique_column_names(self.header)
         self.index = {k: i for i, k in enumerate(self.keys)}
         self.kinds: dict[str, str] = {}  # the scientist's corrections, set by CheckRun
+        self.fallback: set[str] = set()  # columns given coded fallback checks
         self.rows: list[Row] = []
         for i, cells in enumerate(records[1:], start=2):
             row = Row(zip(self.keys, cells + [""] * (len(self.keys) - len(cells))))
@@ -298,18 +262,22 @@ class CheckRun:
         as_of: str | None = None,
         kinds: dict[str, str] | None = None,
         batch_columns: list[str] | None = None,
+        fallback_columns: list[str] | None = None,
     ):
         """kinds: the scientist's corrections to the guessed column kinds, for this
         dataset only, e.g. {"station": "categorical"}. Kept in the study's check
         script, so they apply every time the profile is remade.
         batch_columns: columns whose values mark batches (package, plate, ...),
-        as agreed with the scientist; S3-19 compares each batch with the rest."""
+        as agreed with the scientist; S3-19 compares each batch with the rest.
+        fallback_columns: columns too large for the judgment review, as agreed
+        with the scientist; only these get S3-07 and S3-14."""
         self.tables = [Table(p) for p in paths]
         self.sample_id = sample_id
         self.as_of = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else None
         self.checks: list[tuple[str, str, Check]] = []
         self.kinds = dict(kinds or {})
         self.batch_columns = list(batch_columns or [])
+        self.fallback_columns = list(fallback_columns or [])
         known = {k for t in self.tables for k in t.keys}
         for col, kind in self.kinds.items():
             if col not in known:
@@ -318,13 +286,38 @@ class CheckRun:
                 raise ValueError(
                     f"kinds: {kind!r} for {col!r} is not one of {', '.join(KINDS)}"
                 )
-        for col in self.batch_columns:
-            if col not in known:
-                raise ValueError(
-                    f"batch_columns: no column named {col!r} in these files"
-                )
+        for param, cols in (
+            ("batch_columns", self.batch_columns),
+            ("fallback_columns", self.fallback_columns),
+        ):
+            for col in cols:
+                if col not in known:
+                    raise ValueError(f"{param}: no column named {col!r} in these files")
         for t in self.tables:
             t.kinds = self.kinds
+            t.fallback = set(self.fallback_columns)
+
+    def review_lines(self) -> list[tuple[str, ...]]:
+        """The review file: (slice, file, column_letter, column, value, count, rows),
+        one line per value _review_values lists. Each column starts a new slice,
+        and a slice holds at most REVIEW_SLICE_CHARS characters."""
+        lines, slice_no = [], 0
+        for t in self.tables:
+            for name, c in zip(t.header, t.keys):
+                used = REVIEW_SLICE_CHARS  # so the column's first value starts a slice
+                for v, rows in _review_values(t, name, c).items():
+                    # Rows shown: the first few, then how many more
+                    shown = ", ".join(str(r.line) for r in rows[:REVIEW_ROWS_SHOWN])
+                    if len(rows) > REVIEW_ROWS_SHOWN:
+                        shown += f" (+{len(rows) - REVIEW_ROWS_SHOWN} more)"
+                    fields = (t.name, t.letter(c), c, v, str(len(rows)), shown)
+                    # Start a new slice when this line would overfill the current one
+                    width = len("\t".join(fields)) + len(str(slice_no + 1)) + 2
+                    if used + width > REVIEW_SLICE_CHARS:
+                        slice_no, used = slice_no + 1, 0
+                    used += width
+                    lines.append((str(slice_no), *fields))
+        return lines
 
     # -- registering checks -------------------------------------------------
     def check(self, cid: str, description: str):
@@ -343,23 +336,6 @@ class CheckRun:
     def generic_checks(self) -> None:
         for cid, description, fn in GENERIC_CHECKS:
             self.add(cid, description, fn)
-
-    def suggest_range_columns(
-        self,
-    ) -> list[tuple[str, float | None, float | None, str]]:
-        """Columns whose names suggest a plausible range. For the agent to ASK the
-        scientist about; nothing is checked until range_check() is called."""
-        out, seen = [], set()
-        for t in self.tables:
-            for c in t.keys:
-                if re.search(r"units?$", c, re.I):
-                    continue
-                for pat, lo, hi, why in RANGE_SUGGESTIONS:
-                    if c not in seen and pat.search(c):
-                        out.append((c, lo, hi, why))
-                        seen.add(c)
-                        break
-        return out
 
     def range_check(
         self,
@@ -445,6 +421,11 @@ class CheckRun:
         value = (
             row.get(column, "") if (row is not None and column in (row or {})) else ""
         )
+        # Hide what the PII checks found; their own notes name only the pattern
+        if any(_pii_covered(t, row, c) for c in cols):
+            value = ""
+            if cid not in ("S3-05", "S3-06"):
+                note = PII_HIDDEN
         sample = row.get(self.sample_id, "") if row is not None else ""
         return (
             cid,
@@ -458,14 +439,15 @@ class CheckRun:
             note,
         )
 
-    def write(self, outdir: str | Path, timestamp: str) -> tuple[Path, Path]:
+    def write(self, outdir: str | Path, timestamp: str) -> tuple[Path, Path, Path]:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
-        fpath, ppath = (
+        fpath, ppath, rpath = (
             outdir / f"findings_{timestamp}.tsv",
             outdir / f"profile_{timestamp}.html",
+            outdir / f"review_{timestamp}.tsv",
         )
-        for p in (fpath, ppath):
+        for p in (fpath, ppath, rpath):
             if p.exists():
                 raise FileExistsError(f"{p} already exists; choose a new timestamp")
         hits = self.run()
@@ -480,21 +462,30 @@ class CheckRun:
             "value",
             "note",
         ]
-        with open(fpath, "w", encoding="utf-8", newline="") as fh:
-            fh.write("\t".join(header) + "\n")
-            for h in hits:
-                fh.write("\t".join(_one_line(str(x)) for x in h) + "\n")
+        _write_tsv(fpath, header, hits)
+        review_header = [
+            "slice",
+            "file",
+            "column_letter",
+            "column",
+            "value",
+            "count",
+            "rows",
+        ]
+        _write_tsv(rpath, review_header, self.review_lines())
         ppath.write_text(render_profile(self), encoding="utf-8")
         counts = Counter(h[0] for h in hits if h[8] != "no findings")
         for cid, description, _ in self.checks:
             print(f"{cid}\t{counts.get(cid, 0)}\t{description}")
-        print(f"-> {fpath}\n-> {ppath}")
-        return fpath, ppath
+        print(f"-> {fpath}\n-> {ppath}\n-> {rpath}")
+        return fpath, ppath, rpath
 
 
-def _one_line(v: str) -> str:
-    """Findings are TSV: show tabs and line breaks inside a value visibly."""
-    return v.replace("\t", "\\t").replace("\r", "\\r").replace("\n", "\\n")
+def _write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
+    """Every cell as one line of text, so tabs and line breaks never split it."""
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        fh.write("\t".join(header) + "\n")
+        fh.writelines("\t".join(one_line(str(x)) for x in row) + "\n" for row in rows)
 
 
 # ---------------------------------------------------------------------------
@@ -517,9 +508,9 @@ def frictionless_errors(t) -> list[tuple[str, int | None, int | None, str]]:
     and every column is declared as text so nothing is type-checked."""
     if getattr(t, "_fl_errors", None) is None:
         control = (
-            formats.CsvControl(delimiter="\t", quote_char="\x01")
+            frictionless.formats.CsvControl(delimiter="\t", quote_char="\x01")
             if t.kind == "tsv"
-            else formats.CsvControl()
+            else frictionless.formats.CsvControl()
         )
         encoding = "utf-8-sig" if t.utf8 else "latin-1"
         # frictionless refuses absolute paths ("unsafe"), so open the file by name
@@ -533,9 +524,9 @@ def frictionless_errors(t) -> list[tuple[str, int | None, int | None, str]]:
             encoding=encoding,
         )
         res.infer()
-        res.schema = Schema(
+        res.schema = frictionless.Schema(
             fields=[
-                fl_fields.StringField(name=f.name or f"field{i + 1}")
+                frictionless.fields.StringField(name=f.name or f"field{i + 1}")
                 for i, f in enumerate(res.schema.fields)
             ]
         )
@@ -748,20 +739,36 @@ def _s3_pii_name(t):
             yield None, c, "column name suggests PII or PHI (see pii.md)"
 
 
+def _pii_label(v: str) -> str | None:
+    """The PII pattern a value matches, or None."""
+    for label, pat in PII_VALUE:
+        if pat.search(v):
+            return label
+    if re.fullmatch(r"\d{10}", v):
+        return "10-digit number (phone number?)"
+    if re.fullmatch(r"\d{6}|\d{8}", v) and _date_like_digits(v):
+        return "6- or 8-digit number that reads as a date"
+    return None
+
+
+def _pii_covered(t, row, column: str) -> bool:
+    """True for a column whose name suggests PII (S3-05), or a cell whose value
+    matches a PII pattern (S3-06)."""
+    if column not in t.index:
+        return False
+    if PII_COLUMN.search(t.header[t.index[column]]):
+        return True
+    return row is not None and _pii_label(row.get(column, "")) is not None
+
+
 def _s3_pii_value(t):
     """One finding per column and pattern, with the count and example rows."""
     found = defaultdict(list)
     for r in t.rows:
         for c, v in r.items():
-            for label, pat in PII_VALUE:
-                if pat.search(v):
-                    found[(c, label)].append(r)
-                    break
-            else:
-                if re.fullmatch(r"\d{10}", v):
-                    found[(c, "10-digit number (phone number?)")].append(r)
-                elif re.fullmatch(r"\d{6}|\d{8}", v) and _date_like_digits(v):
-                    found[(c, "6- or 8-digit number that reads as a date")].append(r)
+            label = _pii_label(v)
+            if label:
+                found[(c, label)].append(r)
     for (c, label), rows in found.items():
         if len(rows) == 1:
             yield rows[0], c, label
@@ -802,7 +809,7 @@ def _s3_gene_dates(t):
     dates = set(_date_columns(t))
     for r in t.rows:
         for c, v in r.items():
-            if c not in dates and GENE_DATE.fullmatch(v.strip()):
+            if c in t.fallback and c not in dates and GENE_DATE.fullmatch(v.strip()):
                 yield r, c, "looks like a gene name converted to a date"
 
 
@@ -860,17 +867,20 @@ def _s3_scientific(t):
                 yield r, c, SCI_ID_NOTE if is_label_name(c) else SCI_NOTE
 
 
-def _s3_long_text(t):
-    """One finding per distinct long value per column, at its first row."""
-    for c in t.keys:
-        where = defaultdict(list)
-        for r in t.rows:
-            v = r[c]
-            if len(v) >= LONG_TEXT_MIN_CHARS and " " in v.strip():
-                where[v].append(r)
-        for v, rows in where.items():
-            lines = ", ".join(str(r.line) for r in rows)
-            yield rows[0], c, (f"rows {lines}" if len(rows) > 1 else f"row {lines}")
+def _review_values(t, name: str, c: str) -> dict[str, list]:
+    """Each distinct value of a column with its rows, in order of first
+    appearance, for the judgment review. Leaves out empty cells, ENA null
+    terms, PII the code found and, in numeric columns, numbers."""
+    kind = t.kinds.get(c) or column_kind(t.values(c), name)
+    where = defaultdict(list)
+    for r in t.rows:
+        v = r[c]
+        if is_null(v) or _pii_covered(t, r, c):
+            continue
+        if kind == "numeric" and as_number(v) is not None:
+            continue
+        where[v].append(r)
+    return dict(where)
 
 
 def _s3_leading_zeros(t):
@@ -900,24 +910,31 @@ def _s3_case_variants(t):
 
 def _s3_near_duplicates(t):
     for c in t.keys:
-        cnt = Counter(v for v in t.values(c) if not is_null(v))
-        if not 2 <= len(cnt) <= 50:
+        if c not in t.fallback:
             continue
-        vals = sorted(cnt)
-        for i, a in enumerate(vals):
-            for b in vals[i + 1 :]:
-                if a.lower() == b.lower() or min(len(a), len(b)) < 4:
-                    continue
-                if as_number(a) is not None and as_number(b) is not None:
+        cnt = Counter(v for v in t.values(c) if not is_null(v))
+        vals = sorted(v for v in cnt if len(v) >= 4 and as_number(v) is None)
+        # Compare every pair of values, a block of rows at a time
+        for start in range(0, len(vals), FUZZY_BLOCK):
+            scores = process.cdist(
+                vals[start : start + FUZZY_BLOCK],
+                vals,
+                scorer=fuzz.ratio,
+                processor=str.lower,
+                score_cutoff=90,
+                workers=-1,
+            )
+            for i, j in zip(*scores.nonzero()):
+                a, b = vals[start + i], vals[j]
+                if start + i >= j or a.lower() == b.lower():
                     continue
                 if re.sub(r"\d", "#", a) == re.sub(r"\d", "#", b):
                     continue  # differ only in digits (Arm_2 / Arm_3)
-                if difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio() >= 0.9:
-                    yield (
-                        None,
-                        c,
-                        f"{a}={cnt[a]}; {b}={cnt[b]} (typo, or genuinely different? ask)",
-                    )
+                yield (
+                    None,
+                    c,
+                    f"{a}={cnt[a]}; {b}={cnt[b]} (typo, or genuinely different? ask)",
+                )
 
 
 def _s9_empty(t):
@@ -967,7 +984,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S3-04", "column holds only empty or null values", _s3_null_only),
     ("S3-05", "column name suggests PII or PHI", _s3_pii_name),
     ("S3-06", "value pattern suggests PII or PHI", _s3_pii_value),
-    ("S3-07", "value looks like a gene name converted to a date", _s3_gene_dates),
+    (
+        "S3-07",
+        "value looks like a gene name converted to a date (fallback columns)",
+        _s3_gene_dates,
+    ),
     (
         "S3-08",
         "date/time in a different format from most of its column",
@@ -978,17 +999,42 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ("S3-11", "round-number heaping in a numeric column", _s3_heaping),
     ("S3-12", "leading zeros in a numeric-looking column", _s3_leading_zeros),
     ("S3-13", "same value written with different capitalization", _s3_case_variants),
-    ("S3-14", "near-duplicate values that might be typos", _s3_near_duplicates),
+    (
+        "S3-14",
+        "near-duplicate values that might be typos (fallback columns)",
+        _s3_near_duplicates,
+    ),
     ("S3-15", "sample ID not unique (all tables)", _across_tables),
     ("S3-16", "number written in scientific notation", _s3_scientific),
     ("S3-17", "value may have been cut off at a length limit", _s3_truncated),
-    ("S3-18", "long free-text value: read it for PII/PHI", _s3_long_text),
+    ("S3-18", "values listed in the review file, per column", _across_tables),
     (
         "S3-19",
         "batch written differently from the other batches (all tables)",
         _across_tables,
     ),
 ]
+
+
+def _review_summary(run: CheckRun):
+    """One row per column in the review file: its values, slices and coverage."""
+    lines = run.review_lines()
+    total = sum(len("\t".join(x)) + 1 for x in lines)
+    slices = defaultdict(list)
+    for x in lines:
+        slices[(x[1], x[3])].append(int(x[0]))
+    tables = {t.name: t for t in run.tables}
+    for (file, c), nums in slices.items():
+        first, last = nums[0], nums[-1]
+        if total <= REVIEW_DIRECT_MAX_CHARS:
+            advice = "read directly"
+        elif last - first + 1 > REVIEW_MAX_SLICES:
+            advice = "too large: fallback"
+        else:
+            advice = "split across helpers"
+        where = f"slice {first}" if first == last else f"slices {first}-{last}"
+        note = f"{len(nums)} values in the review file, {where}: {advice}"
+        yield tables[file], None, c, note
 
 
 def _future(run: CheckRun):
@@ -1068,7 +1114,12 @@ def _batch_shapes(run: CheckRun):
             )
 
 
-CROSS_TABLE = {"S3-09": _future, "S3-15": _dup_ids, "S3-19": _batch_shapes}
+CROSS_TABLE = {
+    "S3-09": _future,
+    "S3-15": _dup_ids,
+    "S3-18": _review_summary,
+    "S3-19": _batch_shapes,
+}
 
 
 # ---------------------------------------------------------------------------
