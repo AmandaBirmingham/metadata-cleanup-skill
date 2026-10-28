@@ -26,7 +26,7 @@ ask:
 - Is it the same thing as another value written differently (`stool` and
   `feces`, `wk2` and `two weeks`)?
 - Was it meant as one of the sample types in `assets/sample_types.tsv`?
-- Does it look damaged by a spreadsheet in a way no coded check reports?
+- Does it look damaged by a spreadsheet?
 - Do whole columns look out of step with each other, as if some were sorted
   separately (partial-sort damage)?
 - Does it hold information that belongs in a field of its own (`feces,
@@ -81,21 +81,28 @@ which the scientist hears about it.
    1. information lost or corrupted: damaged identifiers (scientific
       notation, truncation), partial sorts, spreadsheet damage;
    2. sample identity: repeated or mismatched sample IDs;
-   3. possible PII or PHI;
-   4. contradictions between fields;
-   5. counts that differ from the Phase 1 estimates;
-   6. inconsistent category values;
-   7. cosmetic formatting.
+   3. contradictions between fields;
+   4. counts that differ from the Phase 1 estimates;
+   5. inconsistent category values;
+   6. cosmetic formatting.
 3. **Present** each problem with all of its affected rows and every check
-   involved, in ranked order.
+   involved, in ranked order. A large gap between the counts and the Phase 1
+   estimates, which may mean missing data, comes before the ranked problems.
+
+Possible PII never enters triage: it stops the review (SKILL.md, rule 12).
 
 ## Stage 0 — Sanity checks
 
 - **Encoding.** Not always ASCII or UTF-8. Identify it; converting to UTF-8 is a
-  decision (show any characters that change).
+  decision (show any characters that change). *(Planned: conversion in the
+  cleanup template, which now stops on a file that isn't UTF-8; see
+  BACKLOG.md. Until then, ask the scientist to save the file again as UTF-8,
+  and treat the result as a new original; see "New or replacement input
+  files" in `cleanup_script.md`.)*
 - **Ragged rows.** Rows with more or fewer fields than the header are
-  error-prone. Report where they occur, and offer to reformat the table
-  (as a decision) if that would make it easier to work with.
+  error-prone. Report where they occur. The cleanup script cannot read a
+  table with ragged rows, so ask the scientist to fix the source file
+  (SKILL.md, rule 9), and treat the result as a new original.
 - **Blank rows and columns.** Entirely empty rows, and columns with no header
   and no values. Their presence raises the risk of a partial sort (some
   columns sorted, others not), which scrambles which values belong to which
@@ -129,8 +136,12 @@ Do these in order:
    - strip leading and trailing whitespace;
    - collapse runs of internal spaces (including non-breaking spaces) to one
      space.
-4. Convert the file's row endings to LF (CRLF → LF). This concerns the ends of
-   rows, not line breaks inside cells, which step 1 has already resolved.
+
+Row endings and byte-order marks are set by the output conventions (step 7
+of "Structure" in `cleanup_script.md`), not by a decision. When S0-02 or
+S1-04 fires, tell the scientist how their file's form will change, and
+record their acknowledgement in the decision log as a decision that changes
+no data.
 
 ## Stage 2 — Headers
 
@@ -187,6 +198,9 @@ inference:
   column labeled "zipcode".
 - PII the code cannot recognize, such as names, initials or places, found
   in the judgment review.
+- Excel date serial numbers (`44927`) where an ID or date is expected,
+  found in the judgment review. *(Planned: a coded check as well; see
+  BACKLOG.md.)*
 
 Sample values from throughout the column, never only the first or last rows:
 files are often sorted, which makes a column look uniform when it isn't.
@@ -195,7 +209,6 @@ files are often sorted, which makes a column look uniform when it isn't.
 
 - Look at a spread of values to understand their format.
 - PII patterns (SSN format `###-##-####`, etc.).
-- Excel date serial numbers (`44927` where an ID or date is expected).
 
 ### Probable categorical columns
 
@@ -207,8 +220,8 @@ files are often sorted, which makes a column look uniform when it isn't.
   - mixed abbreviations (F, f, fem);
   - near-duplicates that *might* be typos (Healthy / Heathy; Arm / Arrm);
     found in the judgment review, or by S3-14 in fallback columns.
-- **Near-duplicates need domain knowledge.** IIB and IIIB look like typos of
-  each other but are different cancer stages. Always ask.
+- **Near-duplicates need domain knowledge** (SKILL.md, "Who you are
+  helping"). Always ask.
 
 ### Probable numeric columns
 
@@ -216,7 +229,6 @@ files are often sorted, which makes a column look uniform when it isn't.
 - Minimum, maximum, mean, median, rough distribution.
 - PII patterns: 10-digit numbers that look like phone numbers (8585342230);
   6- or 8-digit numbers that look like dates (281025, 28102025, 20251028).
-- Excel date serial numbers.
 - Round numbers that occur suspiciously often (80% of ages are multiples of 5),
   suggesting estimates or hidden categories.
 - Biologically implausible values: negative concentrations, volumes or
@@ -266,7 +278,7 @@ without approval):
 - **Placeholders → ENA null terms.** For example, body_site = not applicable
   for controls, blanks or samples with no host. Values meant as missing are
   found in the judgment review.
-- **Leave unclear values alone.** 1, 2, 3 in a sex column: do not guess.
+- **Leave unclear values alone** (SKILL.md, rule 6).
 - **Offer values already in use.** When a value needs replacing, offer the
   values the file already uses for the same thing before proposing a new
   one.
@@ -277,7 +289,8 @@ Values can each be valid yet contradict each other within one sample. This is
 common where the scientist copied subject-level information onto every sample
 by hand. Find these by reading every row of the latest draft output, after
 Stages 0–4 are done: rerun the check script on the draft outputs, and cover
-the rows as its S3-20 rows direct:
+the rows as its S3-20 rows (one per table, giving its rows' slices as row
+ranges) direct:
 
 - **read directly:** read every row yourself.
 - **split across helpers:** give each slice (a range of rows of one draft
@@ -316,17 +329,17 @@ Examples of things to flag:
 - a sterile water blank with diseased = True;
 - 2 samples with the same subject_id but different birth_year values.
 
-Examples of things that are not errors:
-
-- human ages above 120 where the unit is months;
-- male seahorses with pregnant = True.
+For things that look wrong but may not be, see "Who you are helping" in
+SKILL.md.
 
 If the scientist confirms that flagged values are correct, record that in the
 decision log as a decision that changes no data.
 
 ## Stage 6 — Formatting
 
-Changes surface form only, never meaning.
+Changes surface form only, never meaning. *(Planned: helpers in the cleanup
+template for numbers, integers, booleans and locale; see BACKLOG.md. Until
+then, see "Not yet in the template" in `cleanup_script.md`.)*
 
 - **Numbers:** localize to en_US: `.` as the decimal separator, no thousands separator
   (100,2 → 100.2; 5,280 → 5280). Confirm which convention the file uses before

@@ -11,9 +11,11 @@ output files (SKILL.md, Phase 2).
   apply to any study. Import it; how to call it is at the top of the file.
   Pass the batch columns agreed with the scientist as `batch_columns=[…]`
   (see "Triage" in `table_checks.md`), and any columns approved for the
-  coded fallback as `fallback_columns=[…]` (see "Judgment review").
-  Start `check_script.py` with a copy of the dependency block (the
-  `# /// script` lines) at the top of `metadata_profile.py`, followed by
+  coded fallback as `fallback_columns=[…]` (see "Judgment review"). Add a
+  `range_check()` for each plausible range the scientist agrees to (in the
+  study discussion or at Stage 3). Start `check_script.py` with a copy of
+  the dependency block (the `# /// script` lines) at the top of
+  `metadata_profile.py`, followed by
   these lines, with `<skill>` replaced by the skill's absolute base
   directory:
 
@@ -41,13 +43,11 @@ It writes only a findings file, so no other output shows the values it is
 looking for. If you don't yet know which column holds the sample IDs, ask
 the scientist.
 
-## Reading and writing files
+## Reading files
 
-`metadata_profile.py` reads files with the cleanup template's own reader, so
-the check script sees the same rows, cells and row numbers as the cleanup
-script. The findings file is written the same way the cleanup script writes
-TSV (see "Helper layer" in `cleanup_script.md`): every cell as text, nothing
-converted, quote characters kept.
+`metadata_profile.py` reads files with the cleanup template's own reader
+(see "Helper layer" in `cleanup_script.md`), so the check script sees the
+same rows, cells and row numbers as the cleanup script.
 
 ## Checks
 
@@ -64,20 +64,17 @@ correction in the decision log as a decision that changes no data.
 
 Each run writes three new files, named with the run's timestamp:
 
-- **Profile** (`profile_<timestamp>.html`), for the scientist to read: for
-  every column, counts of filled, empty and distinct values; for numeric
-  columns, minimum, maximum, mean, median and distribution; for categorical
-  columns, every value with its frequency.
+- **Profile** (`profile_<timestamp>.html`), for the scientist: each
+  column's counts, ranges and values, to check against what they know of
+  their study.
 - **Findings** (`findings_<timestamp>.tsv`): one row per value that may be
   wrong, with the check ID and description, the file, the spreadsheet row
   (header = row 1), the column, the sample ID, the value, and a note. A check
   that finds nothing still gets one row saying so, so "checked, nothing
-  found" can be told apart from "not checked". The S3-18 rows are not
-  problems: one per column, they say how to cover its values in the
-  judgment review (`table_checks.md`). The S3-20 rows are not problems
-  either: one per table, they give its rows' slices as row ranges and how
-  to cover them in the row review (Stage 5 in `table_checks.md`). The PII
-  checks' rows (S3-05, S3-06) never show the value.
+  found" can be told apart from "not checked". The S3-18 and S3-20 rows
+  are coverage instructions, not problems; see "Covering every value" and
+  Stage 5 in `table_checks.md`. The PII checks' rows (S3-05, S3-06) never
+  show the value.
 - **Review** (`review_<timestamp>.tsv`), for you: the values for the
   judgment review, one line per distinct value of each column, with its
   slice number, file, column letter, column, count and first rows.
@@ -90,7 +87,7 @@ Each run writes three new files, named with the run's timestamp:
 - whenever a check is added;
 - at Stage 5, on the latest draft outputs rather than the originals;
 - once at Stage 9 (final validation), on the latest draft outputs rather
-  than the originals;
+  than the originals, with `stage9_checks()` added;
 - whenever the scientist asks.
 
 Don't rerun it after every draft run of the cleanup script; the diff shows

@@ -389,6 +389,15 @@ def test_s3_01_skips_pairs_of_null_only_columns(write):
     assert hits([p], "S3-01") == []
 
 
+def test__pairs_too_many_columns(write, monkeypatch):
+    monkeypatch.setattr(mp, "MAX_PAIR_COLUMNS", 2)
+    p = write("t.tsv", [["sample_name", "a", "b"], ["S1", "x", "x"]])
+    pair_checks = ("S3-01", "S3-02", "S3-03")
+    found = {cid: [(h[5], h[8]) for h in hits([p], cid)] for cid in pair_checks}
+    expected = {cid: [("", "not checked: more than 2 columns")] for cid in pair_checks}
+    assert found == expected
+
+
 def test_s3_04_null_only(write):
     h = hits(
         [write("t.tsv", [["sample_name", "a"], ["S1", "not provided"], ["S2", ""]])],
@@ -490,7 +499,10 @@ def test_s3_09_future_date(write):
         "t.tsv", [["sample_name", "d"], ["S1", "2025-01-01"], ["S2", "2031-01-01"]]
     )
     assert [x[7] for x in hits([p], "S3-09", as_of="2026-10-22")] == ["2031-01-01"]
-    assert hits([p], "S3-09") == []  # no as-of date: not checked
+    # No as-of date: reported as not checked, never as no findings
+    assert [(x[2], x[8]) for x in hits([p], "S3-09")] == [
+        ("t.tsv", "not checked: no as-of date given")
+    ]
 
 
 def test_s3_10_partial_dates(write):
@@ -721,6 +733,15 @@ def test_s3_18_coverage_advice(write, monkeypatch, direct, max_slices, advice):
     assert [x[8].split(": ", 1)[1] for x in h] == [advice, advice]
 
 
+def test__review_summary_column_with_nothing_to_review(write):
+    p = write("t.tsv", [["sample_name", "empty"], ["S1", ""], ["S2", "not provided"]])
+    summary = [(h[5], h[8]) for h in hits([p], "S3-18")]
+    assert summary == [
+        ("sample_name", "2 values in the review file, slice 1: read directly"),
+        ("empty", "0 values in the review file: nothing to read"),
+    ]
+
+
 def test__row_summary_slices(write, monkeypatch):
     # Each row line is 4 characters plus room for its line end and slice number
     monkeypatch.setattr(mp, "REVIEW_SLICE_CHARS", 15)
@@ -783,6 +804,26 @@ def test_write_findings(write, tmp_path):
     )
     with pytest.raises(FileExistsError):
         run.write_findings(out, "t1")
+
+
+@pytest.mark.parametrize(
+    "as_of,timestamp,expected",
+    [
+        (None, "20261022-101500", [("2026-10-23", "after 2026-10-22")]),
+        ("2026-10-23", "20261022-101500", [("", "no findings")]),
+        (None, "t1", [("", "not checked: no as-of date given")]),
+    ],
+)
+def test_write_findings_as_of(write, tmp_path, as_of, timestamp, expected):
+    p = write(
+        "t.tsv", [["sample_name", "d"], ["S1", "2026-10-22"], ["S2", "2026-10-23"]]
+    )
+    run = CheckRun([str(p)], sample_id="sample_name", as_of=as_of)
+    run.generic_checks()
+    f = run.write_findings(tmp_path / "out", timestamp)
+    lines = [x.split("\t") for x in f.read_text(encoding="utf-8").splitlines()]
+    found = [(x[7], x[8]) for x in lines if x[0] == "S3-09"]
+    assert found == expected
 
 
 def test_main_pii_only(write, tmp_path):
@@ -1120,7 +1161,7 @@ def test_s3_17_truncated_value(write):
 def test_structural_checks_ignore_null_terms_in_number_columns(write):
     # frictionless would report type errors here if columns weren't all read as text
     p = write("t.tsv", [["sample_name", "age"], ["S1", "45"], ["S2", "not applicable"]])
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = CheckRun([str(p)], sample_id="sample_name", as_of="2026-10-22")
     run.generic_checks()
     found = [
         h for h in run.run() if h[8] != "no findings" and h[0] not in COVERAGE_CHECKS

@@ -19,18 +19,10 @@ script is in the text at the top of the template.
 - **Self-contained, with pinned dependencies.** One Python file. Heavy lifting
   is done by established libraries, declared with exact versions in a PEP 723
   inline metadata block at the top of the script, so `uv run <script>` runs it
-  with those versions:
-  - pandas — reading tables and merging: `merge(..., validate=..., indicator=True)`
-    for identifier-based merges, `merge_asof(..., direction=..., tolerance=...)`
-    for time-based matching;
-  - openpyxl — `.xlsx` input (`.xls` and `.ods` need other readers);
-  - charset-normalizer — encoding detection;
-  - Babel — number localization (`parse_decimal` with an explicit locale);
-  - standard-library `datetime.strptime` — dates, always with an explicit,
-    scientist-confirmed format per column, never a format-guessing parser.
-
-  The same block also tells anyone without `uv` exactly which versions to
-  install.
+  with those versions. The same block also tells anyone without `uv` exactly
+  which versions to install. Dates are always read and written with an
+  explicit, scientist-confirmed format per column, never a format-guessing
+  parser.
 - **A thin embedded layer.** The study-independent code no library provides
   is copied into each script (see "Helper layer" below), not imported from the
   skill.
@@ -49,29 +41,34 @@ script is in the text at the top of the template.
 
 ## Structure
 
-1. PEP 723 dependency block (exact versions), then the header: study name,
-   scientist, date started, the input file names.
-2. Embedded helper layer.
-3. **Load:** read each input table as text, with no type conversion. Give every
-   row an internal ID from its original file and position (for example,
-   `samples.xlsx|Sheet1|row 14`). Decisions refer to rows through this ID
-   behind the scenes, so renaming sample IDs later doesn't break earlier
-   decisions. Columns likewise get internal IDs (`samples.xlsx|Sheet1|col 3`)
-   mapped to the scientist's column names, so the scientist's names can be
-   anything, and renaming a column later doesn't break earlier decisions.
+1. PEP 723 dependency block (exact versions), then the header (see the top
+   of the template).
+2. The input files and the decisions, then the embedded helper layer after
+   `# === END OF DECISIONS ===`.
+
+Each run then carries out these steps:
+
+3. **Load:** read each input table as text, with no type conversion.
+   Decisions select rows by their values and are replayed in order from the
+   originals, so renaming sample IDs or columns later doesn't break earlier
+   decisions.
 4. **Phase A — per-table decisions**, in the order agreed.
 5. **Merge decisions.**
 6. **Phase B — decisions on the merged table.** Which outputs such a change
    reaches is set out in SKILL.md, "What goes in which output".
-7. **Write outputs:** one UTF-8 TSV per input table (a workbook gives one per
-   tab), plus the merged TSV. Drafts are named `<file>__draft_<timestamp>.tsv`
+7. **Write outputs:** one TSV per input table (a workbook gives one per
+   tab), plus the merged TSV. Until the scientist says the discussion is
+   done, outputs are drafts, named `<file>__draft_<timestamp>.tsv`
    (`<file>__<tab>__draft_<timestamp>.tsv` for a workbook); the final run's
    outputs are named `<file>__cleanup_<timestamp>.tsv`, and the merged one
-   `merged__cleanup_<timestamp>.tsv`. Stop if any value contains a tab
-   or line break.
+   `merged__cleanup_<timestamp>.tsv`. Stop if any value contains a tab or
+   line break. Every output follows the same conventions, whatever the
+   original's form, and they are the only changes made without a decision
+   (SKILL.md, rule 3): tab-separated, UTF-8 with no byte-order mark, and
+   every row ended by a line feed (LF).
 8. **Write the change list and the diff.** The change list
-   (`changes__draft_<timestamp>.tsv`) has one row per changed cell: decision
-   ID, file, row, column, old value, new value. Then call
+   (`changes__draft_<timestamp>.tsv`) has one row per change: a changed
+   cell, or a column or row added, renamed or deleted. Then call
    `scripts/diff_tables.py` to write the diff between the previous draft
    output and this one (see `diff_view.md`). The change list is mainly for
    you; the diff is what the scientist looks at. A stacked table with no
@@ -92,10 +89,10 @@ decided, and why, is in the decision log.
 pass
 
 # D-014
-rows = select(t["samples"], sample_type="control")
+rows = select(t["samples"], sample_type="control blank")
 rows = exclude(rows, sample_name=["not-a-blank.12"])
 rows = exclude(rows, collection_date="2025-03-04")
-set_value(t["samples"], rows, "sample_type", "extraction blank", decision="D-014")
+set_value(t["samples"], rows, "sample_type", "control_blank", decision="D-014")
 ```
 
 When a later decision replaces an earlier one, the earlier block becomes
@@ -114,31 +111,27 @@ Tell the scientist about any mismatch before going on.
 
 ## Helper layer
 
-The embedded layer wraps the libraries above and adds what they don't provide:
-ID checks, the change list and timestamped output names. It must also force safe library settings:
+The embedded layer wraps the libraries and adds what they don't provide:
+reading, ID checks, the change list and timestamped output names. It must:
 
-- always read with pandas `dtype=str, keep_default_na=False, na_filter=False`,
-  so `NA`, `None` and empty cells stay as written, no types are guessed, and
-  leading zeros survive;
-- read text files with `quoting=csv.QUOTE_NONE` as well, so quote characters
-  are kept as written. Without it, pandas unwraps quoted cells (`"""x"""`
-  becomes `"x"`), an unapproved change. Unwrapping, if the scientist wants
-  it, is a decision like any other;
+- read every cell as text, exactly as written, with no type guessing, so
+  `NA`, `None` and empty cells stay as written and leading zeros survive;
+- read a TSV by splitting rows on line feeds and cells on tabs, so quote
+  characters are kept as data; unwrapping them, if the scientist wants it,
+  is a decision like any other. A CSV is parsed the standard way, since in
+  CSV the quotes are part of the format, not the data;
 - write every TSV (outputs and the change list) row by row: cells joined by
   tabs, rows ended by a line feed, values exactly as they are. Don't use a
   CSV writer: with quoting turned off, Python's CSV writer refuses values
   that contain a quote character, and with quoting on, it adds quotes that
-  weren't there;
-- before every merge, remove and report rows whose link value is empty, since
-  pandas treats empty or missing link values as matching each other.
+  weren't there.
 
 Every change function must:
 
 - **stop with a clear message** if:
   - an explicitly listed sample ID doesn't exist;
   - a condition matches no rows at all;
-- **record** each changed cell in the change list (decision ID, file, row,
-  column, old value, new value).
+- **record** each change in the change list (Structure, step 8).
 
 Available in the template:
 
@@ -155,33 +148,24 @@ Available in the template:
   the first draft;
 - writing the change list, and calling `scripts/diff_tables.py` for the diff.
 
-Not yet in the template (planned; see BACKLOG.md). Until each exists, write
-the code in the decision's block, meeting these requirements:
+Not yet in the template. Until each exists, write the code in the
+decision's block, meeting the requirements where each is specified:
 
-- **other formatting normalization** (numbers, booleans);
-- **merging,** in three forms (see Stage 7 in `merge_and_validation.md`):
-  - **identifier-based:** link column, join type and expected cardinality
-    checked;
-  - **time-based:** pandas `merge_asof`, with the direction (only earlier
-    events, only later events, or nearest either way), the maximum time
-    window, and the grouping column (for example, subject_id, so one
-    subject's events never attach to another's samples) all stated explicitly
-    in the code. Both time columns must already be converted to real dates by
-    earlier, approved decisions; rows with an empty date are excluded and
-    reported;
-  - **custom rules** that neither form covers: written as explicit code in the
-    decision's block; the rule in plain language is in the decision log;
-  - for every form, report matched and unmatched records, and show the diff
-    before approval;
-- **applying a change made to the merged table to the per-table copies.**
+- **other formatting normalization** (numbers, booleans): Stage 6 in
+  `table_checks.md`;
+- **merging:** Stage 7 in `merge_and_validation.md`;
+- **applying a change made to the merged table to the per-table copies,**
+  and checking at Stage 9 that they match the merged file for every field
+  they share *(planned; see BACKLOG.md)*. Until then, after merging, compare
+  the fields they share with a study-specific check.
 
 ## New or replacement input files
 
 When the scientist supplies a corrected or additional file:
 
 1. Treat it as a new original: never write to it.
-2. A replacement keeps the old file's name in the header, marked as
-   superseded, so the history is visible.
+2. Record a replacement in the decision log as a decision that changes no
+   data, naming the file it supersedes, so the history is visible.
 3. Rerun the check script on the new originals.
 4. Rerun the draft cleanup script and show the scientist the diff against the
    previous draft output. What the existing decisions now do to the new file

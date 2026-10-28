@@ -37,7 +37,9 @@ def read_table(path: Path) -> list[list[str]]:
             for y in range(table.get_height())
         ]
         return rows
-    lines = text.split("\n")
+    # Split TSV here, not with the cleanup scripts' reader, so a bug in that
+    # reader still shows in the diff; everything else is left to daff
+    lines = text.split("\n")  # same-pattern-ok: independent of shared reader
     if lines and lines[-1] == "":
         lines = lines[:-1]
     lines = [line[:-1] if line.endswith("\r") else line for line in lines]

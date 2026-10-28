@@ -6,22 +6,11 @@ is how a proposed change is shown before it is approved (SKILL.md, rule 4).
 
 ## How to make it
 
-Run the bundled script; don't write your own:
-
-    uv run scripts/diff_tables.py PREVIOUS.tsv NEW.tsv --key sample_name --out DIFF.html
-
-`scripts/diff_tables.py` reads both files with every cell as
-text, quote characters included (a `.csv` file, such as an original, is
-parsed as CSV); compares them with daff, matching rows by the key column; and
-writes an HTML page with changed cells shaded and shown as `old → new`, and
-unchanged rows and columns collapsed to `...`. If the key repeats or is empty
-in either file, daff matches rows by content instead, and the summary says
-so. It prints a one-line summary: rows changed, rows added or removed,
-columns added, removed, renamed or moved. If nothing changed, it says so and
-writes no page.
-
-Name the page to match the run: `<file>__diff__draft_<timestamp>.html`, one
-per table.
+The draft cleanup script writes the diff itself when run with
+`--diff-script` (see the top of the template), one page per table. For any
+other diff, run the bundled `<skill>/scripts/diff_tables.py`; don't write
+your own. How to call it, how it reads the files and what its summary says
+are at the top of that file.
 
 ## Which diff
 

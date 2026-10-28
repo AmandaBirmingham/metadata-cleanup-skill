@@ -55,6 +55,9 @@ needs in either case.
   reached, say so and record the taxon as unconfirmed in the decision log.
 - Host taxon ID special values: free-living samples → `not applicable`; most
   controls (except some positive controls) → `missing: control sample`.
+- Look up every taxon ID and ENVO term already in the file, as here and
+  under "ENVO terms". *(Planned: a coded check that they exist and are
+  current as well; see BACKLOG.md.)*
 
 ## ENVO terms
 
@@ -77,8 +80,9 @@ is_env_system = true. *(To confirm against current MIxS guidance: which ENVO
 branches each field should draw from; see BACKLOG.md.)*
 
 Search it directly, filtering on is_biome, is_env_system or is_env_material
-for the field in question and on is_obsolete. Never suggest an obsolete term. If the scientist's file contains one, propose
-its replacement.
+for the field in question and on is_obsolete. Never suggest an obsolete
+term. If the scientist's file contains one, propose its replacement. (For
+the planned check, see "Taxon IDs".)
 
 ## ENA null values
 

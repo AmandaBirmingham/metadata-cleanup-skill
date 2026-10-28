@@ -16,17 +16,22 @@ with quoting off and every column read as text.
     import sys; sys.path.insert(0, "<skill>/scripts")
     from metadata_profile import CheckRun
 
-    run = CheckRun(["batch1.tsv", "batch2.tsv"], sample_id="sample_name",
-                   as_of="2026-10-22")
+    run = CheckRun(["batch1.tsv", "batch2.tsv"], sample_id="sample_name")
     run.generic_checks()
+    run.range_check("age", low=0, high=90)   # only ranges the scientist agreed
 
-    @run.check("X-01", "control whose material says sea water")
+    @run.check("X-01", "control blank whose material says sea water")
     def _(table):
         for row in table.rows:
-            if row["sample_type"] == "control" and row["env_material"] == "sea water":
+            if row["sample_type"] == "control_blank" and row["env_material"] == "sea water":
                 yield row, "env_material"
 
     run.write("outputs", "20261022-101500")   # profile, findings and review files
+
+Dates after the run's date are flagged (S3-09); to compare with another date,
+such as the end of the study, pass CheckRun(..., as_of="YYYY-MM-DD"). For the
+Stage 9 run, on the latest draft outputs, also call
+run.stage9_checks(required=[...], expected_rows={file name: rows}).
 
 Before any review, run only the PII checks, writing only the findings file:
 
@@ -40,9 +45,8 @@ A check is a function of one table that yields hits:
 "column" may be None, a column name, or several names joined by " = ".
 
 Reading: files are read by cleanup_template.py's reader, so both scripts see
-the same rows: TSV with every cell exactly as written (rows split on LF, cells
-on TAB; quote characters kept), CSV parsed the standard way. Nothing is
-converted. pandas is in the dependency block because that module imports it.
+the same rows and cells. pandas is in the dependency block because that
+module imports it.
 """
 
 from __future__ import annotations
@@ -165,6 +169,12 @@ FUZZY_BLOCK = 200
 PII_CHECKS = ("S3-05", "S3-06")
 # A column counts as regularly written when other batches use at most this many shapes
 MAX_USUAL_SHAPES = 5
+# Column-pair checks (S3-01 to S3-03) are skipped above this many named columns
+MAX_PAIR_COLUMNS = 300
+# The note of a check that could not run, so it is never read as "no findings"
+NOT_CHECKED = "not checked: {}"
+# The form of a run's timestamp, from which the as-of date defaults
+RUN_TIMESTAMP = "%Y%m%d-%H%M%S"
 
 
 # ---------------------------------------------------------------------------
@@ -482,12 +492,20 @@ class CheckRun:
         return fpath, ppath, rpath
 
     def write_findings(self, outdir: str | Path, timestamp: str) -> Path:
-        """Write only the findings file; refuses to overwrite it."""
+        """Write only the findings file; refuses to overwrite it. With no as_of,
+        the as-of date is the date of a YYYYMMDD-HHMMSS timestamp."""
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
         fpath = outdir / f"findings_{timestamp}.tsv"
         if fpath.exists():
             raise FileExistsError(f"{fpath} already exists; choose a new timestamp")
+        # Take the as-of date from the run's timestamp; any other form leaves
+        # it unset, which S3-09 reports as not checked
+        if self.as_of is None:
+            try:
+                self.as_of = datetime.strptime(timestamp, RUN_TIMESTAMP).date()
+            except ValueError:
+                pass
         hits = self.run()
         header = [
             "check",
@@ -744,7 +762,8 @@ def _s3_truncated(t):
 
 def _pairs(t, test):
     cols = [k for name, k in zip(t.header, t.keys) if name.strip()]
-    if len(cols) > 300:
+    if len(cols) > MAX_PAIR_COLUMNS:
+        yield None, None, NOT_CHECKED.format(f"more than {MAX_PAIR_COLUMNS} columns")
         return
     vals = {c: t.values(c) for c in cols}
     null_only = {c for c in cols if all(is_null(v) for v in vals[c])}
@@ -1072,15 +1091,20 @@ def _review_summary(run: CheckRun):
     slices = defaultdict(list)
     for x in lines:
         slices[(x[1], x[3])].append(int(x[0]))
-    tables = {t.name: t for t in run.tables}
-    for (file, c), nums in slices.items():
-        first, last = nums[0], nums[-1]
-        advice = _coverage_advice(
-            total, last - first + 1, REVIEW_MAX_SLICES, "too large: fallback"
-        )
-        where = f"slice {first}" if first == last else f"slices {first}-{last}"
-        note = f"{len(nums)} values in the review file, {where}: {advice}"
-        yield tables[file], None, c, note
+    for t in run.tables:
+        for c in t.keys:
+            nums = slices.get((t.name, c))
+            # A column with no values to read still gets its row
+            if not nums:
+                yield t, None, c, "0 values in the review file: nothing to read"
+                continue
+            first, last = nums[0], nums[-1]
+            advice = _coverage_advice(
+                total, last - first + 1, REVIEW_MAX_SLICES, "too large: fallback"
+            )
+            where = f"slice {first}" if first == last else f"slices {first}-{last}"
+            note = f"{len(nums)} values in the review file, {where}: {advice}"
+            yield t, None, c, note
 
 
 def _row_summary(run: CheckRun):
@@ -1108,6 +1132,8 @@ def _row_summary(run: CheckRun):
 
 def _future(run: CheckRun):
     if run.as_of is None:
+        for t in run.tables:
+            yield t, None, None, NOT_CHECKED.format("no as-of date given")
         return
     for t in run.tables:
         for c in _date_columns(t):

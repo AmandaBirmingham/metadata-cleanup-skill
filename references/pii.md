@@ -9,19 +9,13 @@ HIPAA (the 18 identifiers below). Do not flag ordinary subject metadata merely
 because it describes a person.
 
 No PII or PHI may be kept. Before any other review, the check script looks
-for it by column name (S3-05) and by value pattern (S3-06) in a run of its
-own (SKILL.md, Phase 0), whose findings give each location and pattern but
-never the value. Everything else is read in the judgment review
-(`table_checks.md`), where these lists guide what to look for but do not
-limit it.
+for it by column name (S3-05) and by value pattern (S3-06) (SKILL.md, Phase
+0). Everything else is read in the judgment review (`table_checks.md`),
+where these lists guide what to look for but do not limit it.
 
 If you find possible PII or PHI, tell the scientist plainly where it is and
-why it may identify someone, and ask them to confirm. Each finding is
-resolved by a decision: the scientist confirms it is not PII, or it is
-removed, by emptying or replacing the cell, deleting the column, or setting
-the cell to text the scientist supplies. Never propose replacement text
-yourself; that would mean reading the value. What follows a removal is set
-out in SKILL.md, rule 12.
+why it may identify someone. How each finding is resolved is set out in
+SKILL.md, Phase 0, and what follows when it is found later, in rule 12.
 
 Initials can also be identifying.
 

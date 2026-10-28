@@ -5,8 +5,9 @@ description: Help a scientist clean up and complete experimental sample metadata
 
 # Metadata cleanup for repository submission
 
-> **DRAFT.** The work still to do is listed in `BACKLOG.md`; each place it
-> applies says what to do in the meantime.
+> **DRAFT.** The work still to do is listed in `BACKLOG.md`. Each unbuilt
+> piece is marked once, where it is specified, with what to do in the
+> meantime; other mentions point there.
 
 ## Who you are helping
 
@@ -29,21 +30,23 @@ themselves instead of handing it to repository staff.
 ## Rules that always apply
 
 1. **Never modify the original files.** Read them; never write to them.
-2. **Never overwrite outputs.** Every run of the cleanup script writes new
-   outputs whose names carry a timestamp suffix (`YYYYMMDD-HHMMSS`), so the
-   newest sorts last. Until the scientist says the discussion is done, their
-   names also say `draft`. Get the current date and time from the system,
-   never from memory. Three working files are the exception: the decision log
-   and the skill-feedback notes, which are only ever added to, and the draft
-   cleanup script, which you edit in place. When draft outputs pile up, ask the scientist whether older ones
-   may be deleted.
+2. **Never overwrite outputs.** Every file a script run writes is new, and
+   its name carries a timestamp suffix (`YYYYMMDD-HHMMSS`), so the newest
+   sorts last; the cleanup script's output names are given under
+   "Structure" in `references/cleanup_script.md`. Get the current date and
+   time from the system, never from memory. Files you write yourself are
+   updated as each one's own description says. When draft outputs pile up,
+   ask the scientist whether older ones may be deleted.
 3. **Make no decision without the scientist's affirmative consent.** You may
    suggest ("It sounds like all your samples are feces — is that right?"); you
    may not decide. This covers even whitespace and typos, and choices a step
    would otherwise make silently, such as an order, a matching column, or
-   which copy to keep: propose each one explicitly before acting. When an
-   answer is hedged or could be read more than one way, say how you will
-   record it and invite a correction before relying on it.
+   which copy to keep: propose each one explicitly before acting. The one
+   exception is the output conventions (step 7 of "Structure" in
+   `references/cleanup_script.md`), which apply to every output and are
+   announced at the start instead. When an answer is hedged or could be
+   read more than one way, say how you will record it and invite a
+   correction before relying on it.
 4. **Show every change before it is approved.** Add the proposed change to the
    decision log as a new entry, add its code to the draft cleanup script, run
    it, and show the scientist the diff between the previous draft output and
@@ -117,7 +120,8 @@ At the start, tell the scientist briefly:
   with a conversation about the study; if there is no study discussion,
   don't announce that it is skipped;
 - that the result is a set of corrected TSV files, a script that makes every
-  change, and a log of their decisions;
+  change, and a log of their decisions, and, in plain words, what the output
+  conventions (rule 3) change about the files' form;
 - that they may be asked for permission when a script runs, depending on
   their settings, and that this is expected.
 
@@ -189,10 +193,11 @@ review takes its locations from the review file's lines for its values.
 When to run the check script is under "When to run it" in
 `references/check_script.md`.
 
-Before raising any finding, carry out the judgment review and then the triage,
-both in `references/table_checks.md`. From the first run, also compare the sample and control counts with
-the Phase 1 estimates, using a count check written for the study, and raise a
-large gap early, as possible missing data.
+Before raising any finding, carry out the judgment review and then the
+triage, both in `references/table_checks.md`. From the first run, also
+compare the sample and control counts with the Phase 1 estimates, using a
+count check written for the study; triage says when to raise a gap.
+*(Planned: a generic count check; see BACKLOG.md.)*
 
 If any run's S3-20 rows say "too large: stop", stop: tell the scientist that
 their study has too many rows and columns for every row to be read, which
@@ -238,7 +243,7 @@ When the scientist confirms the discussion is done:
 Deliver:
 
 - the final cleanup script;
-- one corrected TSV per input table (UTF-8);
+- one corrected TSV per input table;
 - one merged TSV (if there was more than one table);
 - the decision log;
 - the skill-feedback notes, for the skill's maintainers;
@@ -348,10 +353,10 @@ it is; the script stops if any listed ID does not exist.
   abbreviation). The metadata holds the `sample_type` identifier
   (`control_blank`), never the label; a label or abbreviation the scientist
   writes (`control blank`, `CSF`) is a candidate to map to its identifier,
-  with their approval. *(Planned: a check that each `sample_type` value is
-  on the list; see BACKLOG.md. Until then, compare the values with the list
-  yourself.)* Which values were meant as which sample type is part of the
-  judgment review.
+  with their approval. Whether each value is on the list, and which values
+  were meant as which sample type, is part of the judgment review.
+  *(Planned: a coded check that each `sample_type` value is on the list as
+  well; see BACKLOG.md.)*
 - **Repository column names:** *(placeholder — still to be supplied; see
   BACKLOG.md)*.
 

@@ -17,6 +17,9 @@ Tables combine in one of two ways:
   (batches, plates, collection sites). Their rows are put one after another.
 - **Merging:** the tables hold different information about related records
   (a subject table and a sample table). Records are matched on a link.
+  *(Planned: identifier-based and time-based merges in the cleanup template;
+  see BACKLOG.md. Until then, see "Not yet in the template" in
+  `cleanup_script.md`.)*
 
 ### Stacking
 
@@ -58,6 +61,10 @@ must be worked out with the scientist, case by case:
   mislead the analysis. Equivalently, each sample gets the most recent event
   **before** its collection, never a later one.
 - Consider a maximum time window, so that distant events aren't linked.
+- State a grouping column (for example, subject_id, so one subject's events
+  never attach to another's samples). Both time columns must already hold
+  real dates, converted by earlier, approved decisions; rows with an empty
+  date are excluded and reported.
 - Other rules may be needed. A "nearest in time" rule is not always the right
   one. Ask what the scientist wants each sample to represent, and turn that
   into an explicit rule. Show the diff of its results before approval.
@@ -77,7 +84,8 @@ Then, for every merge:
 
 - If a table's linking column should be unique (subject_id in a subject
   table), confirm that it is.
-- Rows with an empty linking value: exclude them from the merge and report them.
+- Rows with an empty linking value: exclude them from the merge and report
+  them, since empty linking values would otherwise match each other.
 - Linking values in one table with no match in the other: look for near matches
   (`UCSD.123` vs. `UCSD_123`) and ask.
 
@@ -127,19 +135,22 @@ but every suggested ID or term must be checked against the bundled files.
 
 A last check on the merged result. Its purpose is to catch errors introduced
 during handling, not to repeat Stage 3. Run the check script on the latest
-draft outputs (the checks below are part of its generic part), and carry
-out the judgment review (`table_checks.md`) on its findings; this is what
-catches an ENA term or sample type mistyped in a decision. Then read every
-row of the merged output, as at Stage 5 in `table_checks.md`, covered as its
-S3-20 row directs. Then spot-check a few records with the scientist.
+draft outputs, with its Stage 9 checks added (see `check_script.md`), and
+carry out the judgment review (`table_checks.md`) on its review file; this
+is what catches an ENA term or sample type mistyped in a decision. Then
+read every row of the merged output, as at Stage 5 in `table_checks.md`,
+covered as its S3-20 row directs. Then spot-check a few records with the
+scientist.
 
 - No duplicate sample IDs.
 - Every required field filled for every sample.
 - Row count as expected (for one-to-one merges, the sum of the input row
   counts, adjusted for agreed exclusions).
-- No empty or NaN values introduced by merging.
+- No empty or NaN-like values (S9-01 lists every one, including those
+  already decided earlier).
 - Per-table corrected copies are consistent with the merged file for every
-  field they share.
+  field they share (not yet a coded check; see "Not yet in the template" in
+  `cleanup_script.md`).
 
 ### Comparison with the study-discussion estimates
 
@@ -174,6 +185,11 @@ include:
   hypothesis field against each confounder field. Raise each such pair as a
   question, with no assumed explanation: only the scientist can say whether
   it is part of the design.
+
+*(Planned: a check that reports each key field's counts or range and each
+pair of key fields that vary only together; see BACKLOG.md. Until then,
+write a study-specific check for them, so every number you give comes from
+a check file.)*
 
 If Phase 1 gave no key fields, use the choice recorded in the decision log
 (see "Pre-existing studies" in `study_discussion.md`).
