@@ -7,9 +7,6 @@ in an ENVO OWL release, and writes one TSV row per term with its label,
 synonyms, obsolete status, direct parents, flags for which MIxS environment
 field the term suits, and the ENVO release it came from.
 
-Parents are the named targets of rdfs:subClassOf plus the named genus class of
-each owl:equivalentClass/owl:intersectionOf definition.
-
 Usage:
     python3 build_envo_lookup.py ENVO_OWL ENVO_TERMS_TSV OUTPUT_TSV
 """
@@ -85,6 +82,8 @@ class OwlData:
                 self._read_class(curie(about), owl_class)
 
     def _read_class(self, term_id: str, owl_class: ET.Element) -> None:
+        # Parents: the named targets of rdfs:subClassOf, plus the named genus
+        # class of each owl:equivalentClass/owl:intersectionOf definition
         for sub in owl_class.findall(f"{RDFS}subClassOf"):
             target = sub.get(f"{RDF}resource")
             if target:

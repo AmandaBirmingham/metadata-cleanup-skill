@@ -34,6 +34,6 @@ value. The scientist checks the diff page themselves.
 
 ## Known gap
 
-The page shows the sample ID but not the spreadsheet row number or column
+The page shows each row's ID but not the spreadsheet row number or column
 letter. When the scientist needs to find a cell in their own copy, give its
 row and column from the change list. *(Planned fix; see BACKLOG.md.)*

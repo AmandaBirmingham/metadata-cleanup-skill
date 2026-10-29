@@ -143,10 +143,10 @@ point; when they do, follow "New or replacement input files" in
 
 Before reading any value in the files, run only the PII checks on the
 original files (see "The PII-only run" in `references/check_script.md`).
-Their findings give each place PII may be and the pattern it matched, never
-the value. Bring each one to the scientist with its location, so they can
-look in their own copy, and record how they resolve it (see
-`references/pii.md`):
+Their findings give each place PII may be and the pattern it matched (see
+"Outputs" in `references/check_script.md`). Bring each one to the scientist
+with its location, so they can look in their own copy, and record how they
+resolve it (see `references/pii.md`):
 
 - **not PII:** a decision that changes no data; it is asked again in each
   later session, since the check finds the value again;
@@ -210,7 +210,7 @@ scientist, using its findings: 0 sanity checks, 1 string cleaning, 2 headers,
 Present the problems in plain language, a few at a time, in triage order.
 Give the location of every value a problem concerns, as the findings file
 records it, so the scientist can find it in their own copy; for a problem
-found by reading a draft output's rows (Stage 5), give its sample ID. Each
+found by reading a draft output's rows (Stage 5), give its ID. Each
 answer becomes an entry in the decision log; each one that changes data is
 carried out in the cleanup script and approved as rule 4 describes.
 
@@ -381,14 +381,14 @@ write the full absolute path.
 | `references/pii.md` | PII and PHI to watch for |
 | `assets/ena_null_terms.tsv` | ENA missing-value terms, with ENA's definitions and plain meanings |
 | `assets/sample_types.tsv` | The repository's sample types |
-| `assets/envo_lookup.tsv` | ENVO terms (release 2026-06-26) |
+| `assets/envo_lookup.tsv` | ENVO terms; the release is in its `envo_release` column |
 | `assets/metagenome_taxa.tsv` | Current NCBI metagenome taxa |
 | `assets/ncbi_taxonomy.tsv.gz` | Full NCBI taxonomy list |
 | `scripts/build_envo_lookup.py` | Maintainer tool, not used in sessions: rebuilds `envo_lookup.tsv` from an ENVO `.owl` release plus the repository's ENVO term list |
 | `scripts/metadata_profile.py` | Generic part of the check script: column profile, generic checks, and the Stage 9 checks |
 | `scripts/diff_tables.py` | Diff between two versions of a table (daff), as an HTML page |
 | `scripts/cleanup_template.py` | Starting point for the cleanup script: dependency block, helper layer, and the check against the decision log |
-| `tests/` | Tests for the bundled scripts |
+| `tests/` | Tests for the bundled scripts, except `scripts/build_envo_lookup.py` *(planned; see BACKLOG.md)* |
 | `BACKLOG.md` | Maintainer work list, in priority order; not used in sessions |
 | `run_tests.sh` | Runs the tests, in an environment built from the scripts' own dependency blocks |
 

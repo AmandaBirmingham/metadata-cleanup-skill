@@ -296,7 +296,7 @@ ranges) direct:
 - **split across helpers:** give each slice (a range of rows of one draft
   output) to a helper agent, with the file's header line and the questions
   below. A helper reads only those lines and reports the slice it read and
-  each row it flags, with its row number and sample ID. Check that every
+  each row it flags, with its row number and ID. Check that every
   slice was reported. Tell the scientist first, as for the judgment review.
 - **too large: stop:** the study is too large for this skill; see SKILL.md,
   Phase 2.
@@ -338,12 +338,14 @@ decision log as a decision that changes no data.
 ## Stage 6 — Formatting
 
 Changes surface form only, never meaning. *(Planned: helpers in the cleanup
-template for numbers, integers, booleans and locale; see BACKLOG.md. Until
-then, see "Not yet in the template" in `cleanup_script.md`.)*
+template for integers and booleans; see BACKLOG.md. Until then, see "Not yet
+in the template" in `cleanup_script.md`.)*
 
 - **Numbers:** localize to en_US: `.` as the decimal separator, no thousands separator
   (100,2 → 100.2; 5,280 → 5280). Confirm which convention the file uses before
-  converting; `5,280` is ambiguous.
+  converting; `5,280` is ambiguous. *(Planned: conversion from a stated
+  locale; see BACKLOG.md. Until then, see "Not yet in the template" in
+  `cleanup_script.md`.)*
 - **Integers:** remove spreadsheet `.0` artifacts (9606.0 → 9606).
 - **Booleans:** one form (TRUE, true, Yes, 1 → True).
 - **Dates:** the format each field requires (03/17/2026, March 17 at 5pm,

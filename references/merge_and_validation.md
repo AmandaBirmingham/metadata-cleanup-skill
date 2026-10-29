@@ -17,9 +17,9 @@ Tables combine in one of two ways:
   (batches, plates, collection sites). Their rows are put one after another.
 - **Merging:** the tables hold different information about related records
   (a subject table and a sample table). Records are matched on a link.
-  *(Planned: identifier-based and time-based merges in the cleanup template;
-  see BACKLOG.md. Until then, see "Not yet in the template" in
-  `cleanup_script.md`.)*
+  *(Planned: identifier-based merges in the cleanup template, with matched
+  and unmatched counts; see BACKLOG.md. Until then, see "Not yet in the
+  template" in `cleanup_script.md`.)*
 
 ### Stacking
 
@@ -27,7 +27,8 @@ Before stacking, check and confirm with the scientist:
 
 - the column sets are the same; columns present in only some tables are
   reported, never silently added as blanks;
-- sample IDs are unique across all the tables, not just within each;
+- the tables have the same ID column, and its IDs are unique across all
+  the tables, not just within each;
 - the stacking order: propose one (for example, by batch or plate number, or
   by collection period), say whether and how it differs from the order of the
   file names, and record the agreed order in the decision;
@@ -68,6 +69,9 @@ must be worked out with the scientist, case by case:
 - Other rules may be needed. A "nearest in time" rule is not always the right
   one. Ask what the scientist wants each sample to represent, and turn that
   into an explicit rule. Show the diff of its results before approval.
+
+*(Planned: time-based merges in the cleanup template; see BACKLOG.md. Until
+then, see "Not yet in the template" in `cleanup_script.md`.)*
 
 Then, for every merge:
 

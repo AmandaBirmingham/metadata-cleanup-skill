@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import glob
 import io
 import re
 import subprocess
@@ -47,7 +48,7 @@ import pandas as pd
 # EDIT HERE: the input files and the decisions
 # ===========================================================================
 INPUTS: dict[str, str] = {}  # table name -> file name in --inputs
-SAMPLE_ID = "sample_name"  # the column that identifies each sample
+ID_COLUMNS: dict[str, str] = {}  # table name -> the column that identifies its rows
 
 
 def decisions(t):
@@ -85,11 +86,6 @@ def column_letter(index0: int) -> str:
     return s
 
 
-def display_name(path: Path) -> str:
-    """The file name without an 8-hex-digit prefix that an upload may add."""
-    return re.sub(r"^[0-9a-f]{8}-(?=\d)", "", path.name)
-
-
 @dataclass
 class RawTable:
     """A file's rows of cells exactly as written, plus facts about the file."""
@@ -109,7 +105,7 @@ def read_file(path: Path) -> RawTable:
     suffix = path.suffix.lower()
     if suffix not in READABLE_SUFFIXES:
         raise Stop(
-            f"{display_name(path)}: cannot read {suffix or 'unnamed'} files, only "
+            f"{path.name}: cannot read {suffix or 'unnamed'} files, only "
             + ", ".join(READABLE_SUFFIXES)
         )
     # Decode as UTF-8, falling back to Latin-1 so the file can still be inspected
@@ -166,7 +162,10 @@ def refuse_existing(*paths: Path) -> None:
     """Stop if any of the paths already exists: outputs are never overwritten."""
     for path in paths:
         if path.exists():
-            raise Stop(f"{path} already exists; never overwrite an output")
+            raise Stop(
+                f"{path} already exists; never overwrite an output; "
+                "choose a new timestamp"
+            )
 
 
 def write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
@@ -179,7 +178,8 @@ def write_tsv(path: Path, header: list[str], rows: Iterable[tuple]) -> None:
 class Table:
     """One table: .df holds every cell as text. Rows are identified as
     "<table>|row N" (N = spreadsheet row, header = row 1); each column keeps
-    its original letter, so renames don't lose track of it."""
+    its original letter, so renames don't lose track of it. id_column names
+    the column whose values identify the table's rows (its IDs)."""
 
     def __init__(
         self,
@@ -188,13 +188,17 @@ class Table:
         df: pd.DataFrame | None = None,
         file: str | None = None,
         col_ids: dict[str, str] | None = None,
+        *,
+        id_column: str,
     ):
         self.name = name
+        self.id_column = id_column
+        self._invented: set[str] = set()  # names made up for repeated or blank headers
         if df is not None:  # built by stack()
             self.df, self.file, self._col_ids = df, file or name, dict(col_ids or {})
             return
         path = Path(path)
-        self.path, self.file = path, display_name(path)
+        self.path, self.file = path, path.name
         raw_table = read_file(path)
         if not raw_table.utf8:
             raise Stop(
@@ -216,10 +220,12 @@ class Table:
                 )
             rows.append(r)
         names = unique_column_names(records[0])
+        self._invented = {n for n, h in zip(names, records[0]) if n != h}
         df = pd.DataFrame(rows, columns=names, dtype=str)
         df.index = [f"{name}|row {i}" for i in range(2, len(df) + 2)]
         self.df = df
         self._col_ids = {n: column_letter(i) for i, n in enumerate(names)}
+        self._need(id_column)
 
     def col_id(self, column: str) -> str:
         return self._col_ids.get(column, "")
@@ -228,8 +234,10 @@ class Table:
         if column not in self.df.columns:
             raise Stop(f"{self.name}: no column named {column!r}")
 
-    def sample(self, row_id: str) -> str:
-        return self.df.at[row_id, SAMPLE_ID] if SAMPLE_ID in self.df.columns else ""
+    def unique_id(self, row_id: str) -> str:
+        if self.id_column not in self.df.columns:
+            return ""
+        return self.df.at[row_id, self.id_column]
 
 
 class RowSet:
@@ -250,11 +258,12 @@ class matches:
 def _mask(table: Table, ids, conditions: dict) -> pd.Series:
     mask = pd.Series(True, index=table.df.index)
     if ids is not None:
-        known = set(table.df[SAMPLE_ID])
+        table._need(table.id_column)
+        known = set(table.df[table.id_column])
         missing = [i for i in ids if i not in known]
         if missing:
-            raise Stop(f"{table.name}: no sample with ID {', '.join(missing)}")
-        mask &= table.df[SAMPLE_ID].isin(ids)
+            raise Stop(f"{table.name}: no row with ID {', '.join(missing)}")
+        mask &= table.df[table.id_column].isin(ids)
     for column, cond in conditions.items():
         table._need(column)
         col = table.df[column]
@@ -272,7 +281,7 @@ def _mask(table: Table, ids, conditions: dict) -> pd.Series:
 
 def select(table: Table, ids: list[str] | None = None, **conditions) -> RowSet:
     """Rows matching every condition: a value, a list of values, matches(regex),
-    a function of the value, or ids=[sample IDs]. Stops if nothing matches."""
+    a function of the value, or ids=[the table's IDs]. Stops if nothing matches."""
     mask = _mask(table, ids, conditions)
     if not mask.any():
         raise Stop(f"{table.name}: the selection matches no rows")
@@ -298,7 +307,7 @@ def _record(decision, kind, table, row_id="", column="", old="", new="", letter=
             "row": row_id.rsplit("row ", 1)[-1] if row_id else "",
             "column_letter": table.col_id(column) if letter is None else letter,
             "column": column,
-            "sample_id": table.sample(row_id) if row_id else "",
+            "table_unique_id": table.unique_id(row_id) if row_id else "",
             "old": old,
             "new": new,
         }
@@ -315,6 +324,8 @@ def _own(table: Table, rows: RowSet) -> None:
         raise Stop(
             f"these rows were selected from another table ({rows.table.name}), not {table.name}"
         )
+    if not rows.index:
+        raise Stop(f"{table.name}: no rows left to change in the selection")
 
 
 def _change_cells(table: Table, row_ids, column: str, new_values, decision: str) -> int:
@@ -383,7 +394,8 @@ def reformat_dates(
             f"{decision}: {len(bad)} values in {column!r} don't match {from_format!r}: "
             + ", ".join(bad[:5])
         )
-    _change_cells(table, rows.index, column, new, decision)
+    if not _change_cells(table, rows.index, column, new, decision):
+        raise Stop(f"{decision}: reformatting {column!r} changes nothing")
 
 
 def add_column(
@@ -393,19 +405,22 @@ def add_column(
     decision: str,
     after: str | None = None,
 ) -> None:
-    """Add a column: one value for every row, or a value for every sample ID."""
+    """Add a column: one value for every row, or a value for every ID."""
     _refuse_column(table, column, decision)
-    ids = list(table.df[SAMPLE_ID])
     if isinstance(values, dict):
+        table._need(table.id_column)
+        ids = list(table.df[table.id_column])
         unknown = [k for k in values if k not in set(ids)]
         missing = [i for i in ids if i not in values]
         if unknown:
-            raise Stop(f"{decision}: no sample with ID {', '.join(unknown)}")
+            raise Stop(f"{decision}: no row with ID {', '.join(unknown)}")
         if missing:
             raise Stop(f"{decision}: no value given for {', '.join(missing[:10])}")
         col = [values[i] for i in ids]
     else:
-        col = [values] * len(ids)
+        col = [values] * len(table.df)
+    if after is not None:
+        table._need(after)
     pos = (
         len(table.df.columns)
         if after is None
@@ -421,6 +436,10 @@ def rename_column(table: Table, old: str, new: str, decision: str) -> None:
     _refuse_column(table, new, decision)
     table.df = table.df.rename(columns={old: new})
     table._col_ids[new] = table._col_ids.pop(old, "")
+    table._invented.discard(old)
+    # The IDs stay with their column under its new name
+    if table.id_column == old:
+        table.id_column = new
     _record(decision, "column renamed", table, column=new, old=old, new=new)
 
 
@@ -429,6 +448,7 @@ def delete_column(table: Table, column: str, decision: str) -> None:
     _record(decision, "column deleted", table, column=column)
     table.df = table.df.drop(columns=[column])
     table._col_ids.pop(column, None)
+    table._invented.discard(column)
 
 
 def delete_rows(table: Table, rows: RowSet, decision: str) -> None:
@@ -449,11 +469,17 @@ def normalize_whitespace(
         visible = s.str.replace(f"[{ZERO_WIDTH}]", "", regex=True)
         return visible.str.replace(SPACES, " ", regex=True).str.strip(" ")
 
+    for column in columns or []:
+        table._need(column)
+    # Clean the names first; listed columns are then found under their new names
     names = pd.Series(list(table.df.columns))
+    renamed = {}
     for old, new in zip(names, clean(names)):
         if old != new and (columns is None or old in columns):
             rename_column(table, old, new, decision)
-    for column in columns or list(table.df.columns):
+            renamed[old] = new
+    listed = [renamed.get(c, c) for c in columns] if columns is not None else None
+    for column in listed or list(table.df.columns):
         col = table.df[column]
         _change_cells(table, list(col.index), column, list(clean(col)), decision)
 
@@ -464,8 +490,11 @@ def stack(
     source_column: str | None = None,
     name: str = "merged",
 ) -> Table:
-    """Put tables with the same columns one after another."""
+    """Put tables with the same columns and ID column one after another."""
     first = list(tables[0].df.columns)
+    id_column = tables[0].id_column
+    if source_column:
+        _refuse_column(tables[0], source_column, decision)
     for t in tables[1:]:
         if list(t.df.columns) != first:
             diff = sorted(set(first) ^ set(t.df.columns)) or [
@@ -475,15 +504,25 @@ def stack(
                 f"{decision}: {t.name} has different columns from {tables[0].name}: "
                 + ", ".join(diff)
             )
-    ids = Counter(i for t in tables for i in t.df[SAMPLE_ID])
+        if t.id_column != id_column:
+            raise Stop(
+                f"{decision}: {t.name} has ID column {t.id_column!r}, "
+                f"not {id_column!r} like {tables[0].name}"
+            )
+    tables[0]._need(id_column)
+    ids = Counter(i for t in tables for i in t.df[id_column])
     dups = [i for i, n in ids.items() if n > 1]
     if dups:
         raise Stop(
-            f"{decision}: sample IDs repeat across the tables: {', '.join(dups[:10])}"
+            f"{decision}: IDs in {id_column!r} repeat across the tables: "
+            + ", ".join(dups[:10])
         )
     df = pd.concat([t.df for t in tables])
-    merged = Table(name, df=df, file=name, col_ids={c: "" for c in first})
+    merged = Table(
+        name, df=df, file=name, col_ids={c: "" for c in first}, id_column=id_column
+    )
     merged.parts = list(tables)
+    merged._invented = set().union(*(t._invented for t in tables))
     if source_column:
         merged.df.insert(
             len(first),
@@ -532,10 +571,14 @@ def parse_log(path: Path) -> list[dict]:
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         m = HEADING.match(line)
         if m:
+            if any(e["id"] == m.group(1) for e in entries):
+                raise Stop(f"decision log has more than one entry for {m.group(1)}")
             cur = {"id": m.group(1), "changes": None, "replaces": None}
             entries.append(cur)
         elif line.startswith("## D-"):
             raise Stop(f"decision log heading not in the expected form: {line!r}")
+        elif line.startswith("## "):
+            cur = None
         elif cur is not None:
             m = re.match(r"^Changes data: (yes|no)\s*$", line)
             if m:
@@ -561,15 +604,26 @@ def parse_blocks(source: str) -> dict[str, bool]:
         m = re.match(r"^\s+# (D-\d+)\s*$", line)
         if m:
             cur = m.group(1)
+            if cur in blocks:
+                raise Stop(f"decisions() has more than one block for {cur}")
             blocks[cur] = []
         elif cur and line.strip() and not line.strip().startswith("#"):
+            for other in re.findall(r'decision="(D-\d+)"', line):
+                if other != cur:
+                    raise Stop(f'{cur} passes decision="{other}"; it must be {cur}')
             blocks[cur].append(line.strip())
     return {k: v == ["pass"] for k, v in blocks.items()}
 
 
 def log_mismatches(entries: list[dict], blocks: dict[str, bool]) -> list[str]:
     out = []
+    logged = {e["id"] for e in entries}
     replaced = {e["replaces"]: e["id"] for e in entries if e["replaces"]}
+    out += [
+        f"{e['id']} replaces {e['replaces']}, which is not in the decision log"
+        for e in entries
+        if e["replaces"] and e["replaces"] not in logged
+    ]
     for e in entries:
         did = e["id"]
         if did not in blocks:
@@ -583,7 +637,6 @@ def log_mismatches(entries: list[dict], blocks: dict[str, bool]) -> list[str]:
             out.append(f"{did} changes data but its block is only `pass`")
         elif not e["changes"] and not blocks[did]:
             out.append(f"{did} changes no data but its block has code")
-    logged = {e["id"] for e in entries}
     out += [
         f"{b} has a block but is not in the decision log"
         for b in blocks
@@ -596,6 +649,13 @@ def log_mismatches(entries: list[dict], blocks: dict[str, bool]) -> list[str]:
 def write_table(table: Table, path: Path) -> None:
     """Rows written directly: cells joined by tabs, rows ended by LF."""
     refuse_existing(path)
+    # A made-up name for a repeated or blank header is never written
+    invented = [table.col_id(c) for c in table.df.columns if c in table._invented]
+    if invented:
+        raise Stop(
+            f"{table.name}: columns {', '.join(invented)} have a repeated or blank "
+            "name; rename or delete them with a decision first"
+        )
     rows = [list(table.df.columns)] + table.df.values.tolist()
     for r in rows:
         for v in r:
@@ -615,7 +675,7 @@ CHANGE_COLUMNS = [
     "row",
     "column_letter",
     "column",
-    "sample_id",
+    "table_unique_id",
     "old",
     "new",
 ]
@@ -631,7 +691,7 @@ def previous_draft(outdir: Path, stem: str, timestamp: str, original: Path) -> P
     """The newest earlier draft output of this table, or the original file."""
     earlier = sorted(
         p
-        for p in Path(outdir).glob(f"{stem}__draft_*.tsv")
+        for p in Path(outdir).glob(f"{glob.escape(stem)}__draft_*.tsv")
         if p.name[len(stem) + 8 : -4] < timestamp
     )
     return earlier[-1] if earlier else original
@@ -661,16 +721,6 @@ def make_diff(diff_script: Path, previous: Path, new: Path, key: str, out: Path)
     return r.stdout.strip()
 
 
-def find_input(inputs: Path, name: str) -> Path:
-    exact = inputs / name
-    if exact.exists():
-        return exact
-    found = [p for p in inputs.iterdir() if display_name(p) == name]
-    if len(found) != 1:
-        raise Stop(f"expected one file named {name!r} in {inputs}, found {len(found)}")
-    return found[0]
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--inputs", required=True, type=Path)
@@ -681,10 +731,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--diff-script",
         type=Path,
-        help="the skill's scripts/diff_tables.py (drafts only)",
+        help="the skill's scripts/diff_tables.py (required for drafts)",
     )
     a = ap.parse_args(argv)
     try:
+        if not a.final and a.diff_script is None:
+            raise Stop(
+                "a draft run needs --diff-script (the skill's scripts/diff_tables.py)"
+            )
         problems = log_mismatches(
             parse_log(a.decision_log),
             parse_blocks(Path(__file__).read_text(encoding="utf-8")),
@@ -693,8 +747,17 @@ def main(argv: list[str] | None = None) -> int:
             raise Stop(
                 "the script and the decision log disagree:\n  " + "\n  ".join(problems)
             )
-        originals = {name: find_input(a.inputs, f) for name, f in INPUTS.items()}
-        t = {name: Table(name, p) for name, p in originals.items()}
+        no_id = [name for name in INPUTS if name not in ID_COLUMNS]
+        if no_id:
+            raise Stop(f"ID_COLUMNS names no ID column for {', '.join(no_id)}")
+        originals = {name: a.inputs / f for name, f in INPUTS.items()}
+        missing = [p.name for p in originals.values() if not p.exists()]
+        if missing:
+            raise Stop(f"no input file named {', '.join(missing)} in {a.inputs}")
+        t = {
+            name: Table(name, p, id_column=ID_COLUMNS[name])
+            for name, p in originals.items()
+        }
         decisions(t)
         a.outdir.mkdir(parents=True, exist_ok=True)
         tag = "cleanup" if a.final else "draft"
@@ -716,11 +779,11 @@ def main(argv: list[str] | None = None) -> int:
                 if prev == out and getattr(t[name], "parts", None):
                     report = a.outdir / f"{stem}__stacking__draft_{a.timestamp}.tsv"
                     print(write_stacking_report(t[name], by_table, report))
-                elif prev != out and a.diff_script:
+                elif prev != out:
                     page = a.outdir / f"{stem}__diff__draft_{a.timestamp}.html"
-                    print(
-                        f"{stem}: {make_diff(a.diff_script, prev, out, SAMPLE_ID, page)}"
-                    )
+                    key = t[name].id_column
+                    summary = make_diff(a.diff_script, prev, out, key, page)
+                    print(f"{stem}: {summary}")
     except Stop as e:
         print(f"STOPPED: {e}", file=sys.stderr)
         return 1

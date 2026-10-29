@@ -15,14 +15,14 @@ def run(monkeypatch, previous, new, out, key="sample_name"):
     return diff_tables.main()
 
 
-def test_no_changes_writes_no_page(write, tmp_path, monkeypatch, capsys):
+def test_main_no_changes_writes_no_page(write, tmp_path, monkeypatch, capsys):
     p = write("p.tsv", ROWS)
     out = tmp_path / "d.html"
     assert run(monkeypatch, p, p, out) == 0
     assert "No changes" in capsys.readouterr().out and not out.exists()
 
 
-def test_changed_cell(write, tmp_path, monkeypatch, capsys):
+def test_main_changed_cell(write, tmp_path, monkeypatch, capsys):
     new = [r[:] for r in ROWS]
     new[2][1] = "Y"
     out = tmp_path / "d.html"
@@ -33,7 +33,7 @@ def test_changed_cell(write, tmp_path, monkeypatch, capsys):
     assert 'class="highlighter"' in page
 
 
-def test_quotes_compared_literally(write, tmp_path, monkeypatch, capsys):
+def test_main_quotes_compared_literally(write, tmp_path, monkeypatch, capsys):
     new = [r[:] for r in ROWS]
     new[1][2] = '"q"'
     out = tmp_path / "d.html"
@@ -42,7 +42,7 @@ def test_quotes_compared_literally(write, tmp_path, monkeypatch, capsys):
     assert '"""q"""' in out.read_text().replace("&quot;", '"')
 
 
-def test_rows_and_columns_added_removed(write, tmp_path, monkeypatch, capsys):
+def test_main_rows_and_columns_added_removed(write, tmp_path, monkeypatch, capsys):
     prev = write("p.tsv", ROWS)
     run(monkeypatch, prev, write("n1.tsv", ROWS[:2]), tmp_path / "d1.html")
     assert "0 rows changed, 0 added, 1 removed" in capsys.readouterr().out
@@ -51,12 +51,12 @@ def test_rows_and_columns_added_removed(write, tmp_path, monkeypatch, capsys):
     assert "1 columns added" in capsys.readouterr().out
 
 
-def test_rows_matched_by_key_not_position(write, tmp_path, monkeypatch, capsys):
+def test_main_rows_matched_by_key_not_position(write, tmp_path, monkeypatch, capsys):
     reordered = [ROWS[0], ROWS[2], ROWS[1]]
     p = write("p.tsv", ROWS)
     run(monkeypatch, p, write("n.tsv", reordered), tmp_path / "d.html")
     out = capsys.readouterr().out
-    assert "0 rows changed" in out or "No changes" in out
+    assert out == "No changes between p.tsv and n.tsv; no page written.\n"
 
 
 def test_main_column_renamed_or_moved(write, tmp_path, monkeypatch, capsys):
@@ -116,14 +116,26 @@ def test_main_repeated_or_empty_key_matched_by_content(
     assert "Rows matched by: content" in out.read_text()
 
 
-@pytest.mark.parametrize("problem", ["missing key", "page exists"])
-def test_refusals(write, tmp_path, monkeypatch, problem):
+def test_main_key_missing_matched_by_content(write, tmp_path, monkeypatch, capsys):
+    renamed = [["sample_id", "a", "b"]] + ROWS[1:]
+    out = tmp_path / "d.html"
+    run(monkeypatch, write("p.tsv", ROWS), write("n.tsv", renamed), out)
+    summary = capsys.readouterr().out
+    assert "rows matched by content: sample_name is not in the new file" in summary
+    assert "Rows matched by: content" in out.read_text()
+
+
+def test_main_blank_line_in_previous(write, tmp_path, monkeypatch, capsys):
+    text = "".join("\t".join(r) + "\n" for r in ROWS)
+    with_blank = text.replace("\nS2", "\n\nS2")
+    out = tmp_path / "d.html"
+    run(monkeypatch, write("p.tsv", with_blank), write("n.tsv", ROWS), out)
+    assert capsys.readouterr().out.startswith("0 rows changed, 0 added, 1 removed")
+
+
+def test_main_refuses_existing_page(write, tmp_path, monkeypatch):
     p = write("p.tsv", ROWS)
     out = tmp_path / "d.html"
-    if problem == "missing key":
-        new, key = p, "nope"
-    else:
-        out.write_text("x")
-        new, key = write("n.tsv", ROWS[:2]), "sample_name"
+    out.write_text("x")
     with pytest.raises(SystemExit, match="STOPPED"):
-        run(monkeypatch, p, new, out, key=key)
+        run(monkeypatch, p, write("n.tsv", ROWS[:2]), out)

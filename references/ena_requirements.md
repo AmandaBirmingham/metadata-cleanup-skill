@@ -62,8 +62,8 @@ needs in either case.
 ## ENVO terms
 
 `assets/envo_lookup.tsv` holds every term in the repository's ENVO term list
-(4,321 ENVO terms, current and obsolete), with hierarchy from ENVO release
-2026-06-26. Columns:
+(4,321 ENVO terms, current and obsolete), with hierarchy from the ENVO release
+its `envo_release` column names. Columns:
 
 | Column | Meaning |
 |---|---|

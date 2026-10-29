@@ -47,3 +47,10 @@ Before adding or editing text, check whether the fact already has a home,
 and point to it if so. When a fix would restate something, move it to one
 home and replace the other copies with references. Prefer describing a
 category to listing items that will need editing as the list grows.
+
+## Numbering questions to the user
+
+Label each question to the user "Q" plus its number (Q1, Q2, ...), never as
+a markdown numbered list: the renderer renumbers list items, so the numbers
+the user sees can differ from the ones written, and answers keyed to them
+go astray.

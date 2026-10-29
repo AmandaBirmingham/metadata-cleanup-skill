@@ -1,5 +1,6 @@
 """Tests for scripts/cleanup_template.py (written before the template)."""
 
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -18,8 +19,8 @@ def fresh_changes():
     ct.CHANGES.clear()
 
 
-def load(write, rows, name="t.tsv", table="T"):
-    return ct.Table(table, write(name, rows))
+def load(write, rows, name="t.tsv", table="T", id_column="sample_name"):
+    return ct.Table(table, write(name, rows), id_column=id_column)
 
 
 ROWS = [
@@ -48,7 +49,9 @@ def test_reads_every_cell_as_text_and_keeps_quotes(write):
 
 
 def test_csv_parsed_standard_way(write):
-    t = ct.Table("C", write("c.csv", 'sample_name,note\nS1,"a, b"\n'))
+    t = ct.Table(
+        "C", write("c.csv", 'sample_name,note\nS1,"a, b"\n'), id_column="sample_name"
+    )
     assert t.df.loc["C|row 2", "note"] == "a, b"
 
 
@@ -65,19 +68,26 @@ def test_duplicate_and_blank_column_names_kept_apart(write):
 
 def test_ragged_or_non_utf8_file_stops(write):
     with pytest.raises(Stop, match="cells"):
-        ct.Table("T", write("r.tsv", "sample_name\ta\nS1\tx\ty\n"))
+        ct.Table(
+            "T", write("r.tsv", "sample_name\ta\nS1\tx\ty\n"), id_column="sample_name"
+        )
     with pytest.raises(Stop, match="cells"):
-        ct.Table("T", write("r2.tsv", "sample_name\ta\tb\nS1\tx\n"))
+        ct.Table(
+            "T", write("r2.tsv", "sample_name\ta\tb\nS1\tx\n"), id_column="sample_name"
+        )
     with pytest.raises(Stop, match="UTF-8"):
         ct.Table(
             "T",
             write("l.tsv", None, raw="sample_name\ta\nS1\t\xe3\n".encode("latin-1")),
+            id_column="sample_name",
         )
 
 
 def test_bom_and_crlf_read(write):
     t = ct.Table(
-        "T", write("b.tsv", None, raw=b"\xef\xbb\xbfsample_name\ta\r\nS1\tx\r\n")
+        "T",
+        write("b.tsv", None, raw=b"\xef\xbb\xbfsample_name\ta\r\nS1\tx\r\n"),
+        id_column="sample_name",
     )
     assert (
         list(t.df.columns) == ["sample_name", "a"] and t.df.loc["T|row 2", "a"] == "x"
@@ -162,17 +172,6 @@ def test_column_letter(i, letter):
     assert ct.column_letter(i) == letter
 
 
-def test_display_name_strips_upload_prefix(tmp_path):
-    assert (
-        ct.display_name(tmp_path / "5e17a0c3-2023-04-02_batch_b.txt")
-        == "2023-04-02_batch_b.txt"
-    )
-    assert (
-        ct.display_name(tmp_path / "deadbeef-notes.txt") == "deadbeef-notes.txt"
-    )  # no date after prefix
-    assert ct.display_name(tmp_path / "samples.tsv") == "samples.tsv"
-
-
 def test_unique_column_names():
     assert ct.unique_column_names(["a", "a", "", "b"]) == [
         "a",
@@ -208,7 +207,7 @@ def test_write_tsv(tmp_path):
     ],
 )
 def test_table_blank_rows_kept(write, name, content):
-    t = ct.Table("T", write(name, content))
+    t = ct.Table("T", write(name, content), id_column="sample_name")
     expected = pd.DataFrame(
         {"sample_name": ["S1", "", "S2"], "a": ["x", "", "y"]},
         index=["T|row 2", "T|row 3", "T|row 4"],
@@ -218,33 +217,6 @@ def test_table_blank_rows_kept(write, name, content):
     # A blank row is removed only by a recorded decision, under its real row number
     ct.delete_rows(t, ct.select(t, sample_name=""), decision="D-001")
     assert [(c["kind"], c["row"]) for c in ct.CHANGES] == [("row deleted", "3")]
-
-
-@pytest.mark.parametrize(
-    "files,asked,expected",
-    [
-        (["plate_1.tsv", "replate_1.tsv"], "plate_1.tsv", "plate_1.tsv"),
-        (
-            ["5e17a0c3-2023-04-02_batch_a.tsv"],
-            "2023-04-02_batch_a.tsv",
-            "5e17a0c3-2023-04-02_batch_a.tsv",
-        ),
-        (["replate_1.tsv"], "plate_1.tsv", "found 0"),
-        (
-            ["5e17a0c3-2023-04-02_b.tsv", "deadbeef-2023-04-02_b.tsv"],
-            "2023-04-02_b.tsv",
-            "found 2",
-        ),
-    ],
-)
-def test_find_input(tmp_path, files, asked, expected):
-    for f in files:
-        (tmp_path / f).write_text("x")
-    if expected.startswith("found"):
-        with pytest.raises(Stop, match=expected):
-            ct.find_input(tmp_path, asked)
-    else:
-        assert ct.find_input(tmp_path, asked) == tmp_path / expected
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +278,7 @@ def test_set_value_records_only_changed_cells(write):
             "row": "2",
             "column_letter": "B",
             "column": "status",
-            "sample_id": "S1",
+            "table_unique_id": "S1",
             "old": "Healthy",
             "new": "healthy",
         }
@@ -346,6 +318,22 @@ def test_reformat_dates(write):
     assert len(ct.CHANGES) == 2
 
 
+def test_reformat_dates_that_changes_nothing_stops(write):
+    t = load(write, ROWS)
+    rows = ct.select(t, sample_name="S2")
+    with pytest.raises(Stop, match="changes nothing"):
+        ct.reformat_dates(
+            t, rows, "date", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", decision="D-003"
+        )
+
+
+def test__own_empty_rows_stop(write):
+    t = load(write, ROWS)
+    rows = ct.exclude(ct.select(t, status="Sick"), status="Sick")
+    with pytest.raises(Stop, match="no rows left"):
+        ct.delete_rows(t, rows, decision="D-009")
+
+
 def test_reformat_dates_stops_on_unparseable(write):
     t = load(write, ROWS)
     with pytest.raises(Stop, match="row 3"):
@@ -363,10 +351,25 @@ def test_add_column(write):
         decision="D-004",
         after="sample_name",
     )
-    assert list(t.df.columns) == ["sample_name", "box", "status", "date"]
-    assert ct.CHANGES[0]["kind"] == "column added" and ct.CHANGES[0]["column"] == "box"
     ct.add_column(t, "site", "UCSD", decision="D-005")
-    assert list(t.df["site"]) == ["UCSD"] * 3
+    expected = pd.DataFrame(
+        {
+            "sample_name": ["S1", "S2", "S3"],
+            "box": ["3", "3", "4"],
+            "status": ["Healthy", "healthy", "Sick"],
+            "date": ["2/9/22 6:52", "2022-02-10 13:08:00", "2/11/22 17:44"],
+            "site": ["UCSD"] * 3,
+        },
+        index=["T|row 2", "T|row 3", "T|row 4"],
+        dtype=str,
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
+    added = {"kind": "column added", "file": "t.tsv", "row": "", "column_letter": ""}
+    added |= {"table_unique_id": "", "old": "", "new": ""}
+    assert ct.CHANGES == [
+        {"decision": "D-004", **added, "column": "box"},
+        {"decision": "D-005", **added, "column": "site"},
+    ]
 
 
 def test_add_column_refusals(write):
@@ -375,6 +378,8 @@ def test_add_column_refusals(write):
         ct.add_column(t, "box", {"S1": "3", "S2": "3"}, decision="D-004")
     with pytest.raises(Stop, match="already"):
         ct.add_column(t, "status", "x", decision="D-004")
+    with pytest.raises(Stop, match="no column named 'nope'"):
+        ct.add_column(t, "box", "x", decision="D-004", after="nope")
     with pytest.raises(Stop, match="S9"):
         ct.add_column(
             t, "box", {"S1": "3", "S2": "3", "S3": "4", "S9": "5"}, decision="D-004"
@@ -387,8 +392,30 @@ def test_rename_and_delete_column(write):
     assert t.col_id("collection_date") == "C"
     ct.delete_column(t, "status", decision="D-007")
     assert list(t.df.columns) == ["sample_name", "collection_date"]
-    assert [c["kind"] for c in ct.CHANGES] == ["column renamed", "column deleted"]
-    assert ct.CHANGES[0]["old"] == "date" and ct.CHANGES[0]["new"] == "collection_date"
+    assert ct.CHANGES == [
+        {
+            "decision": "D-006",
+            "kind": "column renamed",
+            "file": "t.tsv",
+            "row": "",
+            "column_letter": "C",
+            "column": "collection_date",
+            "table_unique_id": "",
+            "old": "date",
+            "new": "collection_date",
+        },
+        {
+            "decision": "D-007",
+            "kind": "column deleted",
+            "file": "t.tsv",
+            "row": "",
+            "column_letter": "B",
+            "column": "status",
+            "table_unique_id": "",
+            "old": "",
+            "new": "",
+        },
+    ]
     with pytest.raises(Stop):
         ct.rename_column(t, "nope", "x", decision="D-008")
     with pytest.raises(Stop):
@@ -407,7 +434,7 @@ def test_delete_rows(write):
             "row": "3",
             "column_letter": "",
             "column": "",
-            "sample_id": "S2",
+            "table_unique_id": "S2",
             "old": "",
             "new": "",
         }
@@ -422,7 +449,9 @@ def test_rows_from_another_table_refused(write):
 
 def test_normalize_whitespace(write):
     t = load(
-        write, [["sample_name ", "a"], ["S1", " x  y "], ["S2", "x  y"], ["S3", "ok"]]
+        write,
+        [["sample_name ", "a"], ["S1", " x  y "], ["S2", "x  y"], ["S3", "ok"]],
+        id_column="sample_name ",
     )
     ct.normalize_whitespace(t, decision="D-010")
     assert list(t.df.columns) == ["sample_name", "a"]
@@ -432,6 +461,17 @@ def test_normalize_whitespace(write):
         "value changed",
         "value changed",
     ]
+
+
+def test_normalize_whitespace_listed_columns(write):
+    t = load(write, [["sample_name", " a", "b "], ["S1", " x", " y"]])
+    ct.normalize_whitespace(t, decision="D-010", columns=[" a"])
+    expected = pd.DataFrame(
+        {"sample_name": ["S1"], "a": ["x"], "b ": [" y"]}, index=["T|row 2"], dtype=str
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
+    with pytest.raises(Stop, match="no column named 'nope'"):
+        ct.normalize_whitespace(t, decision="D-011", columns=["nope"])
 
 
 def test_normalize_whitespace_unusual_spaces(write):
@@ -511,6 +551,72 @@ def test_stack_refusals(write):
         ct.stack([a, b], decision="D-011")
     with pytest.raises(Stop, match="S1"):
         ct.stack([a, c], decision="D-011")
+    with pytest.raises(Stop, match="already has a column named 'x'"):
+        ct.stack(
+            [a, load(write, [["sample_name", "x"], ["S2", "2"]], "d.tsv", "D")],
+            decision="D-011",
+            source_column="x",
+        )
+
+
+# ---------------------------------------------------------------------------
+# tables identified by a column other than the sample ID
+# ---------------------------------------------------------------------------
+SUBJECTS = [["subject_id", "age"], ["P1", "40"], ["P2", "50"]]
+DIFF_SCRIPT = ("--diff-script", "diff_tables.py")  # never run: make_diff is replaced
+
+
+def test_table_missing_id_column_stops(write):
+    with pytest.raises(Stop, match="no column named 'sample_name'"):
+        load(write, SUBJECTS)
+
+
+def test_select_ids_from_table_id_column(write):
+    t = load(write, SUBJECTS, id_column="subject_id")
+    assert ct.select(t, ids=["P2"]).index == ["T|row 3"]
+
+
+def test_add_column_by_table_id_column(write):
+    t = load(write, SUBJECTS, id_column="subject_id")
+    ct.add_column(t, "sex", {"P1": "female", "P2": "male"}, decision="D-001")
+    ct.add_column(t, "site", "UCSD", decision="D-002")
+    expected = pd.DataFrame(
+        {
+            "subject_id": ["P1", "P2"],
+            "age": ["40", "50"],
+            "sex": ["female", "male"],
+            "site": ["UCSD", "UCSD"],
+        },
+        index=["T|row 2", "T|row 3"],
+        dtype=str,
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
+
+
+def test_rename_column_of_id_column(write):
+    t = load(write, SUBJECTS, id_column="subject_id")
+    ct.rename_column(t, "subject_id", "host_subject_id", decision="D-001")
+    ct.set_value(t, ct.select(t, ids=["P1"]), "age", "41", decision="D-002")
+    found = (t.id_column, ct.CHANGES[-1]["table_unique_id"])
+    assert found == ("host_subject_id", "P1")
+
+
+def test_stack_by_table_id_column(write):
+    a = load(write, SUBJECTS, "a.tsv", "A", "subject_id")
+    b = load(write, [["subject_id", "age"], ["P3", "60"]], "b.tsv", "B", "subject_id")
+    m = ct.stack([a, b], decision="D-001")
+    found = (m.id_column, list(m.df["subject_id"]))
+    assert found == ("subject_id", ["P1", "P2", "P3"])
+
+
+def test_stack_refusals_by_table_id_column(write):
+    a = load(write, SUBJECTS, "a.tsv", "A", "subject_id")
+    b = load(write, [["subject_id", "age"], ["P1", "60"]], "b.tsv", "B", "subject_id")
+    c = load(write, [["subject_id", "age"], ["P3", "60"]], "c.tsv", "C", "age")
+    with pytest.raises(Stop, match="P1"):
+        ct.stack([a, b], decision="D-001")
+    with pytest.raises(Stop, match="ID column"):
+        ct.stack([a, c], decision="D-001")
 
 
 # ---------------------------------------------------------------------------
@@ -616,6 +722,44 @@ def test_replaced_decision_must_be_pass(log_file):
     assert out == ["D-002 is replaced by D-003, so its block must be `pass`"]
 
 
+def test_parse_log_repeated_id_stops(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(LOG + "\n## D-002 · 2026-10-22 14:30\nDecided: x\nChanges data: no\n")
+    with pytest.raises(Stop, match="more than one entry for D-002"):
+        ct.parse_log(p)
+
+
+def test_parse_blocks_repeated_block_stops():
+    with pytest.raises(Stop, match="more than one block for D-001"):
+        ct.parse_blocks(GOOD + "\n    # D-001\n    x = 1\n")
+
+
+def test_parse_blocks_decision_of_another_block_stops():
+    script = GOOD.replace(
+        "    # D-002\n    pass",
+        '    # D-002\n    set_value(x, y, "a", "b", decision="D-003")',
+    )
+    with pytest.raises(Stop, match='D-002 passes decision="D-003"'):
+        ct.parse_blocks(script)
+
+
+def test_parse_log_other_heading_ends_entry(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(
+        "## D-001 · 2026-10-22 14:05\nDecided: x\n\n## Study information\n"
+        "Changes data: no\n"
+    )
+    with pytest.raises(Stop, match="D-001 has no 'Changes data"):
+        ct.parse_log(p)
+
+
+def test_log_mismatches_replaces_unknown_id(tmp_path):
+    p = tmp_path / "log.md"
+    p.write_text(LOG.replace("Replaces: D-002", "Replaces: D-099"))
+    out = ct.log_mismatches(ct.parse_log(p), ct.parse_blocks(GOOD))
+    assert "D-003 replaces D-099, which is not in the decision log" in out
+
+
 def test_malformed_log_entry(tmp_path):
     p = tmp_path / "log.md"
     p.write_text("## D-001 · 2026-10-22 14:05\nFinding: none\nDecided: x\n")
@@ -638,6 +782,24 @@ def test_write_table_and_refusals(write, tmp_path):
         ct.write_table(t, tmp_path / "o2.tsv")
 
 
+def test_write_table_invented_column_name_stops(write, tmp_path):
+    t = load(write, [["sample_name", "a", "a", ""], ["S1", "1", "2", "3"]])
+    with pytest.raises(Stop, match="columns C, D have a repeated or blank name"):
+        ct.write_table(t, tmp_path / "o.tsv")
+    ct.rename_column(t, "a [col C]", "a2", decision="D-001")
+    ct.delete_column(t, "[col D]", decision="D-002")
+    ct.write_table(t, tmp_path / "o.tsv")
+    assert (tmp_path / "o.tsv").read_text() == "sample_name\ta\ta2\nS1\t1\t2\n"
+
+
+@pytest.mark.parametrize("value", ["a\rb", "a\nb"])
+def test_write_table_refuses_line_breaks(write, tmp_path, value):
+    t = load(write, [["sample_name", "q"], ["S1", "x"]])
+    t.df.loc["T|row 2", "q"] = value
+    with pytest.raises(Stop, match="tab or line break"):
+        ct.write_table(t, tmp_path / "o.tsv")
+
+
 def make_project(tmp_path, decisions_body, log_entries):
     inputs = tmp_path / "in"
     inputs.mkdir()
@@ -652,10 +814,15 @@ def make_project(tmp_path, decisions_body, log_entries):
         "INPUTS: dict[str, str] = {}",
         'INPUTS: dict[str, str] = {"batch_a": "2023-04-02_batch_a.txt"}',
     )
+    src = src.replace(
+        "ID_COLUMNS: dict[str, str] = {}",
+        'ID_COLUMNS: dict[str, str] = {"batch_a": "sample_name"}',
+    )
     start = src.index("def decisions(t):")
     end = src.index("# === END OF DECISIONS ===")
     src = src[:start] + "def decisions(t):\n" + decisions_body + "\n\n" + src[end:]
     script.write_text(src)
+    (tmp_path / "diff_stub.py").write_text('print("diff stub")\n')
     return inputs, log, script
 
 
@@ -666,10 +833,13 @@ BODY = (
 )
 
 
+def stub_diff(script):
+    """The options naming make_project's stand-in diff script."""
+    return ["--diff-script", script.parent / "diff_stub.py"]
+
+
 def run_cleanup(script, inputs, outdir, timestamp, log, *extra):
     """Run a made cleanup script on the command line; extra: further options."""
-    import subprocess
-
     args = ["--inputs", inputs, "--outdir", outdir, "--timestamp", timestamp]
     args += ["--decision-log", log, *extra]
     return subprocess.run(
@@ -680,21 +850,22 @@ def run_cleanup(script, inputs, outdir, timestamp, log, *extra):
 def test_end_to_end_draft_run(tmp_path):
     inputs, log, script = make_project(tmp_path, BODY, ENTRY)
     outdir = tmp_path / "out"
-    r = run_cleanup(script, inputs, outdir, "20261022-120000", log)
+    r = run_cleanup(script, inputs, outdir, "20261022-120000", log, *stub_diff(script))
     assert r.returncode == 0, r.stderr
     out = (outdir / "2023-04-02_batch_a__draft_20261022-120000.tsv").read_text()
     assert out == "sample_name\tstatus\nS1\tHealthy\nS2\tHealthy\n"
-    changes = (outdir / "changes__draft_20261022-120000.tsv").read_text().splitlines()
-    assert changes[0].split("\t")[:3] == ["decision", "kind", "file"]
-    assert (
-        changes[1].split("\t")[:2] == ["D-001", "value changed"] and len(changes) == 2
+    changes = (outdir / "changes__draft_20261022-120000.tsv").read_text()
+    assert changes == (
+        "decision\tkind\tfile\trow\tcolumn_letter\tcolumn\ttable_unique_id\told\tnew\n"
+        "D-001\tvalue changed\t2023-04-02_batch_a.txt\t3\tB\tstatus\tS2\thealthy\tHealthy\n"
     )
 
 
 def test_end_to_end_is_deterministic(tmp_path):
     inputs, log, script = make_project(tmp_path, BODY, ENTRY)
     for ts in ("20261022-120000", "20261022-120100"):
-        assert run_cleanup(script, inputs, tmp_path / "out", ts, log).returncode == 0
+        r = run_cleanup(script, inputs, tmp_path / "out", ts, log, *stub_diff(script))
+        assert r.returncode == 0, r.stderr
     a = (
         tmp_path / "out" / "2023-04-02_batch_a__draft_20261022-120000.tsv"
     ).read_bytes()
@@ -716,7 +887,9 @@ def test_end_to_end_final_names(tmp_path):
 
 def test_end_to_end_stops_on_log_mismatch(tmp_path):
     inputs, log, script = make_project(tmp_path, "    # D-001\n    pass\n", ENTRY)
-    r = run_cleanup(script, inputs, tmp_path / "out", "20261022-120000", log)
+    r = run_cleanup(
+        script, inputs, tmp_path / "out", "20261022-120000", log, *stub_diff(script)
+    )
     assert (
         r.returncode != 0
         and "D-001 changes data but its block is only `pass`" in r.stderr
@@ -733,17 +906,23 @@ def test_end_to_end_stacking_report_only_on_first_draft(tmp_path):
     (inputs / "2023-04-02_batch_b.txt").write_text(
         "sample_name\tstatus\nS3\tHealthy\n", encoding="utf-8"
     )
-    src = script.read_text().replace(
+    with_inputs = script.read_text().replace(
         '{"batch_a": "2023-04-02_batch_a.txt"}',
         '{"batch_a": "2023-04-02_batch_a.txt", "batch_b": "2023-04-02_batch_b.txt"}',
     )
+    src = with_inputs.replace(
+        '{"batch_a": "sample_name"}',
+        '{"batch_a": "sample_name", "batch_b": "sample_name"}',
+    )
     script.write_text(src)
     out = tmp_path / "out"
-    first = run_cleanup(script, inputs, out, "20261022-120000", log)
+    first = run_cleanup(script, inputs, out, "20261022-120000", log, *stub_diff(script))
     assert first.returncode == 0, first.stderr
     assert "same as the per-table outputs in order: yes" in first.stdout
     assert (out / "merged__stacking__draft_20261022-120000.tsv").exists()
-    second = run_cleanup(script, inputs, out, "20261022-120100", log)
+    second = run_cleanup(
+        script, inputs, out, "20261022-120100", log, *stub_diff(script)
+    )
     assert second.returncode == 0, second.stderr
     assert not (out / "merged__stacking__draft_20261022-120100.tsv").exists()
 
@@ -759,6 +938,32 @@ def test_previous_draft_found(tmp_path):
         == "2023-04-02_batch_a__draft_20261022-110000.tsv"
     )
     assert ct.previous_draft(out, "2023-04-02_batch_a", "20261022-090000", orig) == orig
+
+
+def test_previous_draft_glob_characters(tmp_path):
+    (tmp_path / "plate [1]__draft_20261022-100000.tsv").write_text("x")
+    orig = tmp_path / "orig.txt"
+    found = ct.previous_draft(tmp_path, "plate [1]", "20261022-120000", orig)
+    assert found == tmp_path / "plate [1]__draft_20261022-100000.tsv"
+
+
+def test_main_draft_needs_diff_script(tmp_path, monkeypatch, capsys):
+    found = main_on_subjects(tmp_path, monkeypatch, {"subjects": "subject_id"})
+    assert (found, capsys.readouterr().err) == (
+        (1, []),
+        "STOPPED: a draft run needs --diff-script (the skill's scripts/diff_tables.py)\n",
+    )
+
+
+def test_main_stops_on_missing_input(tmp_path):
+    inputs, log, script = make_project(tmp_path, BODY, ENTRY)
+    src = script.read_text().replace('"2023-04-02_batch_a.txt"}', '"missing.txt"}')
+    script.write_text(src)
+    r = run_cleanup(script, inputs, tmp_path / "out", "20261022-120000", log, "--final")
+    assert (r.returncode, r.stderr) == (
+        1,
+        f"STOPPED: no input file named missing.txt in {inputs}\n",
+    )
 
 
 def test_diff_called_for_drafts(tmp_path, monkeypatch):
@@ -789,3 +994,37 @@ def test_diff_called_for_drafts(tmp_path, monkeypatch):
         "d.html",
     ]
     assert "diff_tables.py" in calls[0]
+
+
+def main_on_subjects(tmp_path, monkeypatch, id_columns, *extra):
+    """Run main in-process on one subject table, recording each diff's key;
+    extra: further options."""
+    inputs = tmp_path / "in"
+    inputs.mkdir()
+    (inputs / "subjects.tsv").write_text("subject_id\tage\nP1\t40\n")
+    log = tmp_path / "log.md"
+    log.write_text("# Decision log\n")
+    monkeypatch.setattr(ct, "INPUTS", {"subjects": "subjects.tsv"})
+    monkeypatch.setattr(ct, "ID_COLUMNS", id_columns)
+    keys = []
+    monkeypatch.setattr(
+        ct, "make_diff", lambda script, prev, new, key, out: keys.append(key) or ""
+    )
+    argv = ["--inputs", str(inputs), "--outdir", str(tmp_path / "out")]
+    argv += ["--timestamp", "20261022-120000", "--decision-log", str(log)]
+    argv += list(extra)
+    returned = ct.main(argv)
+    return returned, keys
+
+
+def test_main_diff_key_is_table_id_column(tmp_path, monkeypatch):
+    found = main_on_subjects(
+        tmp_path, monkeypatch, {"subjects": "subject_id"}, *DIFF_SCRIPT
+    )
+    assert found == (0, ["subject_id"])
+
+
+def test_main_stops_without_id_column(tmp_path, monkeypatch, capsys):
+    found = main_on_subjects(tmp_path, monkeypatch, {}, *DIFF_SCRIPT)
+    assert found == (1, [])
+    assert "ID_COLUMNS names no ID column for subjects" in capsys.readouterr().err

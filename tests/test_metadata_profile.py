@@ -1,6 +1,7 @@
 """Tests for scripts/metadata_profile.py."""
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -12,9 +13,17 @@ from metadata_profile import CheckRun, Table
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-def hits(paths, cid, sample_id="sample_name", **kw):
+def make_run(paths, id_column="sample_name", **kw):
+    """A CheckRun on the files, each identified by the same ID column."""
+    paths = [str(p) for p in paths]
+    id_columns = {Path(p).name: id_column for p in paths}
+    run = CheckRun(paths, id_columns=id_columns, **kw)
+    return run
+
+
+def hits(paths, cid, **kw):
     """Findings of one generic check, without the 'no findings' row."""
-    run = CheckRun([str(p) for p in paths], sample_id=sample_id, **kw)
+    run = make_run(paths, **kw)
     run.generic_checks()
     # "no findings" is typed out, not taken from the module, throughout these
     # tests so that they pin the note written to the findings file
@@ -113,6 +122,10 @@ def test_fmt_never_exponential(x, s):
     assert "e" not in mp._fmt(x).lower()
 
 
+def test_as_number_not_finite():
+    assert (mp.as_number("1e999"), mp.as_number("1e99")) == (None, 1e99)
+
+
 @pytest.mark.parametrize(
     "lines,limit,expected",
     [
@@ -201,7 +214,7 @@ def test_table_unreadable_suffix_stops(write):
 def test_table_row_numbers_match_cleanup_template(write):
     p = write("t.tsv", "sample_name\ta\nS1\tx\n\nS2\ty\n")
     profile_lines = [r.line for r in Table(p).rows]
-    cleanup_rows = list(ct.Table("T", p).df.index)
+    cleanup_rows = list(ct.Table("T", p, id_column="sample_name").df.index)
     assert (profile_lines, cleanup_rows) == (
         [2, 3, 4],
         ["T|row 2", "T|row 3", "T|row 4"],
@@ -248,7 +261,7 @@ def test_clean_file_has_no_findings(write, cid):
     assert hits([write("clean.tsv", CLEAN)], cid, as_of="2026-10-22") == []
 
 
-def test_s0_01_not_utf8(write):
+def test__s0_utf8(write):
     assert (
         len(
             hits(
@@ -266,7 +279,7 @@ def test_s0_01_not_utf8(write):
     )
 
 
-def test_s0_02_bom(write):
+def test__s0_bom(write):
     assert (
         len(
             hits(
@@ -278,40 +291,45 @@ def test_s0_02_bom(write):
     )
 
 
-def test_s0_03_ragged(write):
+def test__s0_ragged(write):
     h = hits(
         [write("t.tsv", "sample_name\ta\tb\nS1\tx\nS2\tx\ty\tz\nS3\tx\ty\n")], "S0-03"
     )
     assert [x[3] for x in h] == ["2", "3"]
 
 
-def test_s0_04_blank_row(write):
+def test__s0_blank_rows(write):
     h = hits([write("t.tsv", [["sample_name", "a"], ["S1", "x"], ["", ""]])], "S0-04")
     assert [x[3] for x in h] == ["3"]
 
 
-def test_s0_05_blank_column(write):
+def test__nameless_columns_blank_column(write):
     h = hits([write("t.tsv", [["sample_name", "", "a"], ["S1", "", "x"]])], "S0-05")
     assert len(h) == 1 and h[0][4] == "B"
 
 
-def test_s0_06_quotes_cell_and_row(write):
+def test__s0_quotes_cell_and_row(write):
     h = hits([write("t.tsv", [["sample_name", "a"], ["S1", '"""x"""']])], "S0-06")
     assert len(h) == 1 and h[0][7] == '"""x"""' and 'read CSV-style: "x"' in h[0][8]
     h = hits([write("t.tsv", 'sample_name\ta\tb\nS1\t"x\ty"\tz\n')], "S0-06")
     assert len(h) == 1 and "a quote wraps a tab" in h[0][8]
 
 
-def test_s0_06_not_for_csv(write):
+def test__s0_quotes_not_for_csv(write):
     assert hits([write("t.csv", 'sample_name,a\nS1,"x"\n')], "S0-06") == []
 
 
-def test_s1_01_breaks_in_csv(write):
+def test__s1_breaks_in_csv(write):
     h = hits([write("t.csv", 'sample_name,a\nS1,"one\ntwo"\nS2,"t\tab"\n')], "S1-01")
     assert len(h) == 2
 
 
-def test_s1_02_spaces(write):
+def test__s1_breaks_carriage_return_in_tsv(write):
+    h = hits([write("t.tsv", "sample_name\ta\nS1\ta\rb\nS2\tc\n")], "S1-01")
+    assert [x[2:7] for x in h] == [("t.tsv", "2", "B", "a", "S1")]
+
+
+def test__s1_spaces(write):
     h = hits(
         [
             write(
@@ -332,28 +350,28 @@ def test_s1_02_spaces(write):
     assert len(h) == 1
 
 
-def test_s1_03_unusual_space(write):
+def test__s1_unusual(write):
     h = hits(
         [write("t.tsv", [["sample_name", "a"], ["S1", "x y"], ["S2", "x​y"]])], "S1-03"
     )
     assert ["U+00A0" in h[0][8], "U+200B" in h[1][8]] == [True, True]
 
 
-def test_s1_04_crlf(write):
+def test__s1_crlf(write):
     assert len(hits([write("t.tsv", "sample_name\ta\r\nS1\tx\r\n")], "S1-04")) == 1
 
 
-def test_s2_01_duplicate_names(write):
+def test__s2_duplicates(write):
     h = hits([write("t.tsv", [["sample_name", "a", "a"], ["S1", "x", "y"]])], "S2-01")
     assert len(h) == 1 and "columns B, C" in h[0][8]
 
 
-def test_s2_02_values_without_name(write):
+def test__nameless_columns_values_without_name(write):
     h = hits([write("t.tsv", [["sample_name", ""], ["S1", "x"]])], "S2-02")
     assert len(h) == 1 and h[0][4] == "B"
 
 
-def test_s3_01_02_03_column_pairs(write):
+def test__pairs_identical_case_only_and_mostly_identical(write):
     rows = [["sample_name", "a", "b", "c", "d", "e"]]
     for i in range(40):
         rows.append(
@@ -375,7 +393,13 @@ def test_s3_01_02_03_column_pairs(write):
     assert three["a = d"] == "1 rows differ: rows 2"
 
 
-def test_s3_01_skips_pairs_of_null_only_columns(write):
+def test__s3_mostly_identical_not_from_shared_nulls(write):
+    rows = [["sample_name", "a", "b"]] + [[f"S{i}", "", ""] for i in range(19)]
+    rows += [["S19", "x", "y"]]
+    assert hits([write("t.tsv", rows)], "S3-03") == []
+
+
+def test__pairs_skips_null_only_columns(write):
     p = write(
         "t.tsv",
         [
@@ -396,7 +420,7 @@ def test__pairs_too_many_columns(write, monkeypatch):
     assert found == expected
 
 
-def test_s3_04_null_only(write):
+def test__s3_null_only(write):
     h = hits(
         [write("t.tsv", [["sample_name", "a"], ["S1", "not provided"], ["S2", ""]])],
         "S3-04",
@@ -418,7 +442,7 @@ def test_s3_04_null_only(write):
         "mrn",
     ],
 )
-def test_s3_05_pii_names(write, name):
+def test__s3_pii_name(write, name):
     assert (
         len(hits([write("t.tsv", [["sample_name", name], ["S1", "x"]])], "S3-05")) == 1
     )
@@ -427,7 +451,7 @@ def test_s3_05_pii_names(write, name):
 @pytest.mark.parametrize(
     "name", ["sample_name", "scientific_name", "geo_loc_name", "host_common_name"]
 )
-def test_s3_05_not_pii_names(write, name):
+def test__s3_pii_name_not_pii(write, name):
     assert hits([write("t.tsv", [["sample_name", name], ["S1", "x"]])], "S3-05") == []
 
 
@@ -442,18 +466,18 @@ def test_s3_05_not_pii_names(write, name):
         ("19840312", "date"),
     ],
 )
-def test_s3_06_pii_values(write, value, label):
+def test__s3_pii_value(write, value, label):
     h = hits([write("t.tsv", [["sample_name", "a"], ["S1", value]])], "S3-06")
     assert len(h) == 1 and label in h[0][8]
 
 
-def test_s3_06_many_values_become_one_finding(write):
+def test__s3_pii_value_many_values_become_one_finding(write):
     rows = [["sample_name", "lot"]] + [[f"S{i}", "230517"] for i in range(30)]
     h = hits([write("t.tsv", rows)], "S3-06")
     assert len(h) == 1 and "30 values" in h[0][8]
 
 
-def test_s3_07_gene_dates(write):
+def test__s3_gene_dates(write):
     h = hits(
         [
             write(
@@ -472,7 +496,7 @@ def test_s3_07_gene_dates(write):
     assert [x[7] for x in h] == ["1-Mar", "Sep-02"]
 
 
-def test_s3_08_mixed_date_formats(write):
+def test__s3_mixed_dates(write):
     rows = (
         [["sample_name", "d"]]
         + [[f"S{i}", f"2022-02-{i + 1:02d} 13:08"] for i in range(9)]
@@ -482,7 +506,7 @@ def test_s3_08_mixed_date_formats(write):
     assert [x[7] for x in h] == ["2/9/22 6:52"]
 
 
-def test_s3_08_digit_count_is_not_a_format_change(write):
+def test__s3_mixed_dates_digit_count_is_not_a_format_change(write):
     rows = [
         ["sample_name", "d"],
         ["S1", "7/1/26"],
@@ -492,7 +516,7 @@ def test_s3_08_digit_count_is_not_a_format_change(write):
     assert hits([write("t.tsv", rows)], "S3-08") == []
 
 
-def test_s3_09_future_date(write):
+def test__future(write):
     p = write(
         "t.tsv", [["sample_name", "d"], ["S1", "2025-01-01"], ["S2", "2031-01-01"]]
     )
@@ -503,7 +527,7 @@ def test_s3_09_future_date(write):
     ]
 
 
-def test_s3_10_partial_dates(write):
+def test__s3_partial_dates(write):
     p = write(
         "t.tsv",
         [["sample_name", "d"], ["S1", "2025-01-01"], ["S2", "2025-06"], ["S3", "2024"]],
@@ -511,14 +535,14 @@ def test_s3_10_partial_dates(write):
     assert [x[7] for x in hits([p], "S3-10")] == ["2025-06", "2024"]
 
 
-def test_s3_09_10_taxon_id_is_not_a_year(write):
+def test_parse_date_taxon_id_is_not_a_year(write):
     p = write(
         "t.tsv", [["sample_name", "host_taxid"]] + [[f"S{i}", "9606"] for i in range(5)]
     )
     assert hits([p], "S3-09", as_of="2026-10-22") == [] and hits([p], "S3-10") == []
 
 
-def test_s3_11_heaping(write):
+def test__s3_heaping(write):
     rows = [["sample_name", "age", "sample_id"]] + [
         [f"S{i}", str(5 * (i % 9 + 1)), str(5 * i)] for i in range(30)
     ]
@@ -526,7 +550,7 @@ def test_s3_11_heaping(write):
     assert [x[5] for x in h] == ["age"]  # sample_id is a label, not a number
 
 
-def test_s3_12_leading_zeros(write):
+def test__s3_leading_zeros(write):
     h = hits(
         [write("t.tsv", [["sample_name", "code_x"], ["S1", "007"], ["S2", "8"]])],
         "S3-12",
@@ -534,7 +558,7 @@ def test_s3_12_leading_zeros(write):
     assert len(h) == 1
 
 
-def test_s3_13_case_variants(write):
+def test__s3_case_variants(write):
     h = hits(
         [
             write(
@@ -552,7 +576,7 @@ def test_s3_13_case_variants(write):
     assert len(h) == 1 and "Female=1; female=1" in h[0][8]
 
 
-def test_s3_14_near_duplicates(write):
+def test__s3_near_duplicates(write):
     rows = [
         ["sample_name", "status"],
         ["S1", "Healthy"],
@@ -564,7 +588,7 @@ def test_s3_14_near_duplicates(write):
     assert len(h) == 1 and "Healthy" in h[0][8]  # Arm_2 / Arm_3 differ only in digits
 
 
-def test_s3_14_large_column(write):
+def test__s3_near_duplicates_large_column(write):
     rows = [["sample_name", "status"]] + [
         [f"S{i}", f"site {i:03d}x"] for i in range(60)
     ]
@@ -576,7 +600,7 @@ def test_s3_14_large_column(write):
 
 
 @pytest.mark.parametrize("cid", ["S3-07", "S3-14"])
-def test_s3_07_14_only_on_fallback_columns(write, cid):
+def test__s3_gene_dates_and_near_duplicates_only_on_fallback_columns(write, cid):
     rows = [
         ["sample_name", "gene"],
         ["S1", "1-Mar"],
@@ -588,21 +612,51 @@ def test_s3_07_14_only_on_fallback_columns(write, cid):
 
 def test_fallback_column_unknown_refused(write):
     with pytest.raises(ValueError, match="fallback_columns"):
-        CheckRun(
+        make_run(
             [str(write("t.tsv", CLEAN))],
-            sample_id="sample_name",
             fallback_columns=["plate"],
         )
 
 
-def test_s3_15_duplicate_ids_across_tables(write):
+def test__dup_ids_across_tables(write):
     a = write("a.tsv", [["sample_name", "x"], ["S1", "1"], ["S2", "2"]])
     b = write("b.tsv", [["sample_name", "x"], ["S2", "3"]])
     h = hits([a, b], "S3-15")
     assert len(h) == 2 and all(x[6] == "S2" for x in h)
 
 
-def test_s3_16_scientific_notation(write):
+def test__dup_ids_grouped_by_id_column(write):
+    a = write("a.tsv", [["sample_name", "x"], ["S1", "1"]])
+    b = write("b.tsv", [["sample_name", "x"], ["S1", "2"]])
+    s = write("s.tsv", [["subject_id", "age"], ["S1", "40"], ["P2", "50"]])
+    id_columns = {"a.tsv": "sample_name", "b.tsv": "sample_name", "s.tsv": "subject_id"}
+    run = CheckRun([str(a), str(b), str(s)], id_columns=id_columns)
+    run.generic_checks()
+    found = [h[2:7] for h in run.run() if h[0] == "S3-15"]
+    assert found == [
+        ("a.tsv", "2", "A", "sample_name", "S1"),
+        ("b.tsv", "2", "A", "sample_name", "S1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "id_columns,match",
+    [
+        ({}, "no ID column given for t.tsv"),
+        ({"t.tsv": "subject_id"}, "no column named 'subject_id' in t.tsv"),
+        (
+            {"t.tsv": "sample_name", "u.tsv": "sample_name"},
+            "u.tsv is not one of these files",
+        ),
+    ],
+)
+def test_check_run_id_columns_validated(write, id_columns, match):
+    p = str(write("t.tsv", CLEAN))
+    with pytest.raises(ValueError, match=match):
+        CheckRun([p], id_columns=id_columns)
+
+
+def test__s3_scientific(write):
     h = hits(
         [
             write(
@@ -619,7 +673,7 @@ def test_s3_16_scientific_notation(write):
     assert [x[7] for x in h] == ["7.15208E+11"]
 
 
-def test_s3_16_identifier_column_says_digits_lost(write):
+def test__s3_scientific_identifier_column_says_digits_lost(write):
     rows = [["sample_name", "shipping_number", "conc"], ["S1", "7.15208E+11", "1.2E-3"]]
     h = hits([write("t.tsv", rows)], "S3-16")
     notes = {x[5]: x[8] for x in h}
@@ -632,7 +686,7 @@ OTHER_NOTE = "Collected two days late because of a holiday weekend closure"
 
 def review_lines(paths, column, **kw):
     """Review-file lines for one column, as (value, count, rows)."""
-    run = CheckRun([str(p) for p in paths], sample_id="sample_name", **kw)
+    run = make_run(paths, **kw)
     return [(x[4], x[5], x[6]) for x in run.review_lines() if x[3] == column]
 
 
@@ -685,7 +739,7 @@ def test_review_lines_slices_and_s3_18_coverage(write, monkeypatch):
     rows = [["sample_name", "a", "b"]]
     rows += [[f"S{i}", f"alpha{i}", f"beta{i}"] for i in range(4)]
     p = write("t.tsv", rows)
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = make_run([str(p)])
     run.generic_checks()
     slices = [(x[0], x[3]) for x in run.review_lines()]
     summary = [(h[5], h[8]) for h in run.run() if h[0] == "S3-18"]
@@ -723,7 +777,9 @@ def test_review_lines_slices_and_s3_18_coverage(write, monkeypatch):
         (10, 0, "too large: fallback"),
     ],
 )
-def test_s3_18_coverage_advice(write, monkeypatch, direct, max_slices, advice):
+def test__review_summary_coverage_advice(
+    write, monkeypatch, direct, max_slices, advice
+):
     monkeypatch.setattr(mp, "REVIEW_DIRECT_MAX_CHARS", direct)
     monkeypatch.setattr(mp, "REVIEW_MAX_SLICES", max_slices)
     p = write("t.tsv", [["sample_name", "a"], ["S1", "x"]])
@@ -784,15 +840,21 @@ def test__finding_pii_checks_show_no_value(write):
     ]
 
 
+def test__finding_pii_in_id_column_shows_no_id(write):
+    p = write("t.tsv", [["sample_name", "notes"], ["858-534-2230", "x"]])
+    found = [h[3:9] for h in hits([p], "S3-06")]
+    assert found == [("2", "A", "sample_name", "", "", "phone number pattern")]
+
+
 def test_pii_checks(write):
-    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", CLEAN))])
     run.pii_checks()
     assert [c[0] for c in run.checks] == list(mp.PII_CHECKS)
 
 
 def test_write_findings(write, tmp_path):
     p = write("t.tsv", [["sample_name", "dob"], ["S1", "1984-03-12"]])
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = make_run([str(p)])
     run.pii_checks()
     out = tmp_path / "out"
     f = run.write_findings(out, "t1")
@@ -800,12 +862,12 @@ def test_write_findings(write, tmp_path):
         ["findings_t1.tsv"],
         out / "findings_t1.tsv",
     )
-    with pytest.raises(FileExistsError):
+    with pytest.raises(ct.Stop, match="choose a new timestamp"):
         run.write_findings(out, "t1")
 
 
 def test_write_findings_counts_not_checked(write, tmp_path, capsys):
-    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", CLEAN))])
     run.generic_checks()
     run.write_findings(tmp_path / "out", "t1")  # no as-of date: S3-09 cannot run
     printed = capsys.readouterr().out.splitlines()
@@ -828,7 +890,7 @@ def test_write_findings_as_of(write, tmp_path, as_of, timestamp, expected):
     p = write(
         "t.tsv", [["sample_name", "d"], ["S1", "2026-10-22"], ["S2", "2026-10-23"]]
     )
-    run = CheckRun([str(p)], sample_id="sample_name", as_of=as_of)
+    run = make_run([str(p)], as_of=as_of)
     run.generic_checks()
     f = run.write_findings(tmp_path / "out", timestamp)
     found = [(x[7], x[8]) for x in read_findings(f) if x[0] == "S3-09"]
@@ -841,7 +903,7 @@ def test_main_pii_only(write, tmp_path):
         [["sample_name", "phone", "notes"], ["S1", "x", "mail a@b.org"]],
     )
     out = tmp_path / "out"
-    argv = ["--pii", str(p), "--sample-id", "sample_name"]
+    argv = ["--pii", str(p), "--id-column", "t.tsv=sample_name"]
     argv += ["--out", str(out), "--timestamp", "t1"]
     assert mp.main(argv) == 0
     rows = read_findings(out / "findings_t1.tsv")
@@ -871,7 +933,7 @@ def batch_rows(odd_dates=True):
     return rows
 
 
-def test_s3_19_batch_written_differently(write):
+def test__batch_shapes_batch_written_differently(write):
     h = hits([write("t.tsv", batch_rows())], "S3-19", batch_columns=["package"])
     assert sorted((x[5], x[8].split(":")[0]) for x in h) == [
         ("collected", "package P3 (rows 8-10)"),
@@ -879,7 +941,7 @@ def test_s3_19_batch_written_differently(write):
     ]
 
 
-def test_s3_19_damage_spanning_two_batches(write):
+def test__batch_shapes_damage_spanning_two_batches(write):
     rows = batch_rows()
     for r in rows[1:10]:  # five boxes of samples; boxes 4 and 5 hold all of P3
         r.append(
@@ -909,7 +971,7 @@ def test_s3_19_damage_spanning_two_batches(write):
     ]
 
 
-def test_s3_19_uniform_batches_not_flagged(write):
+def test__batch_shapes_uniform_batches_not_flagged(write):
     assert (
         hits(
             [write("t.tsv", batch_rows(odd_dates=False))],
@@ -920,7 +982,7 @@ def test_s3_19_uniform_batches_not_flagged(write):
     )
 
 
-def test_s3_19_groups_by_file_without_batch_columns(write):
+def test__batches_by_file_without_batch_columns(write):
     rows = batch_rows()
     a = write("a.tsv", [rows[0]] + rows[1:4])
     b = write("b.tsv", [rows[0]] + rows[4:7])
@@ -932,18 +994,17 @@ def test_s3_19_groups_by_file_without_batch_columns(write):
     ]
 
 
-def test_s3_19_needs_two_values_in_a_group(write):
+def test__batch_shapes_needs_two_values_in_a_group(write):
     rows = batch_rows(odd_dates=False)
     rows[7][2] = rows[8][2] = "not provided"
     rows[9][2] = "2/9/22 6:52"  # P3's only date: one value is not a batch pattern
     assert hits([write("t.tsv", rows)], "S3-19", batch_columns=["package"]) == []
 
 
-def test_s3_19_unknown_batch_column_refused(write):
+def test_check_run_unknown_batch_column_refused(write):
     with pytest.raises(ValueError, match="batch_columns"):
-        CheckRun(
+        make_run(
             [str(write("t.tsv", CLEAN))],
-            sample_id="sample_name",
             batch_columns=["plate"],
         )
 
@@ -952,15 +1013,13 @@ def test_s3_19_unknown_batch_column_refused(write):
 # run, findings and locations
 # ---------------------------------------------------------------------------
 def test_finding_location(write):
-    p = write(
-        "5e17a0c3-2023-04-02_x.tsv", [["sample_name", "a", "b"], ["S1", "x", "y "]]
-    )
+    p = write("2023-04-02_x.tsv", [["sample_name", "a", "b"], ["S1", "x", "y "]])
     (h,) = hits([p], "S1-02")
     assert h[2:9] == ("2023-04-02_x.tsv", "2", "C", "b", "S1", "y ", "")
 
 
 def test_no_findings_row(write):
-    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", CLEAN))])
     run.generic_checks()
     rows = [h for h in run.run() if h[0] == "S0-03"]
     assert rows == [
@@ -979,14 +1038,14 @@ def test_no_findings_row(write):
 
 
 def test_duplicate_check_id_refused(write):
-    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", CLEAN))])
     run.add("X-01", "one", lambda t: ())
     with pytest.raises(ValueError):
         run.add("X-01", "two", lambda t: ())
 
 
 def test_study_specific_check(write):
-    run = CheckRun(
+    run = make_run(
         [
             str(
                 write(
@@ -999,7 +1058,6 @@ def test_study_specific_check(write):
                 )
             )
         ],
-        sample_id="sample_name",
     )
 
     @run.check("X-01", "control whose material says sea water")
@@ -1021,7 +1079,7 @@ def test_range_check(write):
             ["S2", "40", "years", "25", "3"],
         ],
     )
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = make_run([str(p)])
     run.range_check("age", 0, 90)
     (h,) = run.run()
     assert h[0] == "R-age" and h[7] == "95" and h[1] == "age below 0 or above 90"
@@ -1032,7 +1090,7 @@ def test_stage9_checks(write):
         "t.tsv",
         [["sample_name", "host_taxid"], ["S1", "9606"], ["S2", ""], ["S3", "nan"]],
     )
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = make_run([str(p)])
     run.stage9_checks(
         required=["host_taxid", "sample_type"], expected_rows={"t.tsv": 4}
     )
@@ -1052,9 +1110,9 @@ def test_stage9_checks(write):
 def test_kinds_validated(write):
     p = str(write("t.tsv", CLEAN))
     with pytest.raises(ValueError, match="no column named"):
-        CheckRun([p], sample_id="sample_name", kinds={"aa": "categorical"})
+        make_run([p], kinds={"aa": "categorical"})
     with pytest.raises(ValueError, match="is not one of"):
-        CheckRun([p], sample_id="sample_name", kinds={"a": "category"})
+        make_run([p], kinds={"a": "category"})
 
 
 def test_kind_correction_changes_checks_and_profile(write, tmp_path):
@@ -1064,7 +1122,7 @@ def test_kind_correction_changes_checks_and_profile(write, tmp_path):
     p = write("t.tsv", rows)
     assert len(hits([p], "S3-11")) == 1
     assert hits([p], "S3-11", kinds={"station": "categorical"}) == []
-    run = CheckRun([str(p)], sample_id="sample_name", kinds={"station": "categorical"})
+    run = make_run([str(p)], kinds={"station": "categorical"})
     _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert "set by scientist: <b>categorical (numbers)</b>" in page
@@ -1076,7 +1134,7 @@ def test_kind_correction_changes_checks_and_profile(write, tmp_path):
 # ---------------------------------------------------------------------------
 def test_write_outputs_and_refuse_overwrite(write, tmp_path):
     p = write("t.csv", 'sample_name,note\nS1,"tab\there"\n')
-    run = CheckRun([str(p)], sample_id="sample_name")
+    run = make_run([str(p)])
     run.generic_checks()
     f, prof, rev = run.write(tmp_path / "out", "t1")
     lines = f.read_text().split("\n")
@@ -1087,7 +1145,7 @@ def test_write_outputs_and_refuse_overwrite(write, tmp_path):
         "spreadsheet_row",
         "column_letter",
         "column",
-        "sample_id",
+        "table_unique_id",
         "value",
         "note",
     ]
@@ -1105,10 +1163,11 @@ def test_write_outputs_and_refuse_overwrite(write, tmp_path):
         "count",
         "rows",
     ]
-    with pytest.raises(FileExistsError):
+    with pytest.raises(ct.Stop, match="choose a new timestamp"):
         run.write(tmp_path / "out", "t1")
     rev.unlink()
-    with pytest.raises(FileExistsError):  # the other two still exist
+    # The other two still exist
+    with pytest.raises(ct.Stop, match="choose a new timestamp"):
         run.write(tmp_path / "out", "t1")
 
 
@@ -1118,7 +1177,7 @@ def test_profile_content(write, tmp_path):
         [f"S{i}", str(20 + i), "9606" if i % 2 else "10090", str(812604319 + i)]
         for i in range(60)
     ]
-    run = CheckRun([str(write("t.tsv", rows))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", rows))])
     _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert (
@@ -1138,7 +1197,7 @@ def test_tables_with_same_layout_pooled(write, tmp_path):
     a = write("a.tsv", [["sample_name", "x"], ["S1", "1"]])
     b = write("b.tsv", [["sample_name", "x"], ["S2", "2"]])
     c = write("c.tsv", [["sample_name", "y"], ["S3", "3"]])
-    run = CheckRun([str(a), str(b), str(c)], sample_id="sample_name")
+    run = make_run([str(a), str(b), str(c)])
     _, prof, _ = run.write(tmp_path / "out", "t1")
     page = prof.read_text()
     assert (
@@ -1150,7 +1209,7 @@ def test_tables_with_same_layout_pooled(write, tmp_path):
 # ---------------------------------------------------------------------------
 # checks done by frictionless
 # ---------------------------------------------------------------------------
-def test_s0_07_duplicate_rows(write):
+def test__s0_duplicate_rows(write):
     h = hits(
         [write("t.tsv", [["sample_name", "a"], ["S1", "x"], ["S2", "y"], ["S1", "x"]])],
         "S0-07",
@@ -1158,7 +1217,7 @@ def test_s0_07_duplicate_rows(write):
     assert [x[3] for x in h] == ["4"]
 
 
-def test_s3_17_truncated_value(write):
+def test__s3_truncated(write):
     long = "a" * 255  # a common spreadsheet / database length limit
     h = hits(
         [write("t.tsv", [["sample_name", "note"], ["S1", long], ["S2", "short"]])],
@@ -1170,7 +1229,7 @@ def test_s3_17_truncated_value(write):
 def test_structural_checks_ignore_null_terms_in_number_columns(write):
     # frictionless would report type errors here if columns weren't all read as text
     p = write("t.tsv", [["sample_name", "age"], ["S1", "45"], ["S2", "not applicable"]])
-    run = CheckRun([str(p)], sample_id="sample_name", as_of="2026-10-22")
+    run = make_run([str(p)], as_of="2026-10-22")
     run.generic_checks()
     found = [
         h for h in run.run() if h[8] != "no findings" and h[0] not in COVERAGE_CHECKS
@@ -1191,7 +1250,7 @@ def test_frictionless_failure_is_not_silent(write, monkeypatch):
             return [["resource-error", None, None, "cannot open the file"]]
 
     monkeypatch.setattr(mp.frictionless, "validate", lambda *a, **k: Report())
-    run = CheckRun([str(write("t.tsv", CLEAN))], sample_id="sample_name")
+    run = make_run([str(write("t.tsv", CLEAN))])
     run.generic_checks()
     with pytest.raises(RuntimeError, match="frictionless could not check"):
         run.run()

@@ -36,12 +36,16 @@ check is added.
 At the start of every session (SKILL.md, Phase 0), run only the PII checks
 (S3-05, S3-06), with no check script:
 
-    uv run <skill>/scripts/metadata_profile.py --pii FILE... --sample-id ID \
-        --out OUTDIR --timestamp TIMESTAMP
+    uv run <skill>/scripts/metadata_profile.py --pii FILE... \
+        --id-column FILE=COLUMN ... --out OUTDIR --timestamp TIMESTAMP
 
 It writes only a findings file, so no other output shows the values it is
-looking for. If you don't yet know which column holds the sample IDs, ask
-the scientist.
+looking for.
+
+Give `--id-column` once per file. A file's ID column is the column whose
+values identify its rows: the sample ID in a sample table, the subject ID in
+a subject table. Each table has its own; if you don't yet know one, ask the
+scientist.
 
 ## Reading files
 
@@ -69,12 +73,13 @@ Each run writes three new files, named with the run's timestamp:
   their study.
 - **Findings** (`findings_<timestamp>.tsv`): one row per value that may be
   wrong, with the check ID and description, the file, the spreadsheet row
-  (header = row 1), the column, the sample ID, the value, and a note. A check
-  that finds nothing still gets one row saying so, so "checked, nothing
-  found" can be told apart from "not checked". The S3-18 and S3-20 rows
-  are coverage instructions, not problems; see "Covering every value" and
-  Stage 5 in `table_checks.md`. The PII checks' rows (S3-05, S3-06) never
-  show the value.
+  (header = row 1), the column, the row's ID (`table_unique_id`), the
+  value, and a note. A check that finds nothing still gets one row saying
+  so, so "checked, nothing found" can be told apart from "not checked". The
+  S3-18 and S3-20 rows are coverage instructions, not problems; see
+  "Covering every value" and Stage 5 in `table_checks.md`. The PII checks'
+  rows (S3-05, S3-06) never show the value, nor the row's ID when the hit
+  is in the ID column.
 - **Review** (`review_<timestamp>.tsv`), for you: the values for the
   judgment review, one line per distinct value of each column, with its
   slice number, file, column letter, column, count and first rows.

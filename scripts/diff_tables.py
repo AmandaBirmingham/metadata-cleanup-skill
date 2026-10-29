@@ -9,11 +9,12 @@
     uv run diff_tables.py PREVIOUS.tsv NEW.tsv --key sample_name --out DIFF.html
 
 TSV files are read with every cell as text, exactly as written: rows split
-on line feeds, cells on tabs, quote characters kept. (daff's own reader treats
-quotes CSV-style, so TSV is split here.) A .csv file is read by daff's own CSV
-reader; a byte-order mark is dropped from either. Rows are matched by the key
-column, not by position; if its values repeat or are empty in either file,
-daff matches rows by content instead, and the summary says so.
+on line feeds, cells on tabs, quote characters kept, and a blank line read as
+a row of empty cells. (daff's own reader treats quotes CSV-style, so TSV is
+split here.) A .csv file is read by daff's own CSV reader; a byte-order mark
+is dropped from either. Rows are matched by the key column, not by position;
+if it is missing from either file, or its values repeat or are empty in
+either, daff matches rows by content instead, and the summary says so.
 
 Prints a one-line summary. If nothing changed, says so and writes no page.
 Never overwrites an existing page.
@@ -44,7 +45,11 @@ def read_table(path: Path) -> list[list[str]]:
     if lines and lines[-1] == "":
         lines = lines[:-1]
     lines = [line[:-1] if line.endswith("\r") else line for line in lines]
-    return [line.split("\t") for line in lines]
+    rows = [line.split("\t") for line in lines]
+    # Pad short rows (a blank line) to the header's width, as daff needs
+    width = len(rows[0]) if rows else 0
+    padded = [r + [""] * (width - len(r)) for r in rows]
+    return padded
 
 
 def main() -> int:
@@ -62,15 +67,17 @@ def main() -> int:
     if a.out.exists():
         sys.exit(f"STOPPED: {a.out} already exists; choose a new name.")
     old, new = read_table(a.previous), read_table(a.new)
-    unique = True
+    # Why the key cannot identify every row, if it cannot
+    reason = ""
     for name, t in (("previous", old), ("new", new)):
         if not t or a.key not in t[0]:
-            sys.exit(
-                f"STOPPED: key column {a.key!r} not found in the {name} file's header."
-            )
+            reason = reason or f"{a.key} is not in the {name} file's header"
+            continue
         col = t[0].index(a.key)
         keys = [row[col] if len(row) > col else "" for row in t[1:]]
-        unique = unique and "" not in keys and len(keys) == len(set(keys))
+        if "" in keys or len(keys) != len(set(keys)):
+            reason = reason or f"{a.key} repeats or is empty"
+    unique = not reason
 
     # Match rows by the key only when it identifies every row; otherwise daff decides
     flags = daff.CompareFlags()
@@ -118,9 +125,7 @@ def main() -> int:
         f'<div class="highlighter">{html}</div></body></html>\n'
     )
     a.out.write_text(page, encoding="utf-8")
-    by_content = (
-        "" if unique else f"; rows matched by content: {a.key} repeats or is empty"
-    )
+    by_content = "" if unique else f"; rows matched by content: {reason}"
     print(
         f"{changed} rows changed, {added} added, {removed} removed; "
         f"{cols_added} columns added, {cols_removed} removed, "

@@ -84,3 +84,4 @@ that holds its marker.
 
 - **Tests for `scripts/build_envo_lookup.py`.** The maintainer tool has
   none, though SKILL.md says the bundled scripts are tested. Files: tests.
+  Spec: SKILL.md, the table of bundled files.

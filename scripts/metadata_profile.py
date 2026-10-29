@@ -9,14 +9,16 @@
 """Generic part of the check script: column profile and generic checks.
 
 Imported by a study's check script, which copies the dependency block above
-into its own; structural checks (ragged and blank rows, blank and duplicate
-column names, duplicate rows, truncated values) are done by frictionless, run
-with quoting off and every column read as text.
+into its own. pandas is in that block because cleanup_template.py, whose file
+reader this module uses, imports it.
 
     import sys; sys.path.insert(0, "<skill>/scripts")
     from metadata_profile import CheckRun
 
-    run = CheckRun(["batch1.tsv", "batch2.tsv"], sample_id="sample_name")
+    run = CheckRun(
+        ["batch1.tsv", "batch2.tsv"],
+        id_columns={"batch1.tsv": "sample_name", "batch2.tsv": "sample_name"},
+    )
     run.generic_checks()
     run.range_check("age", low=0, high=90)   # only ranges the scientist agreed
 
@@ -35,7 +37,8 @@ run.stage9_checks(required=[...], expected_rows={file name: rows}).
 
 Before any review, run only the PII checks, writing only the findings file:
 
-    uv run metadata_profile.py --pii batch1.tsv batch2.tsv --sample-id sample_name \
+    uv run metadata_profile.py --pii batch1.tsv batch2.tsv \
+        --id-column batch1.tsv=sample_name --id-column batch2.tsv=sample_name \
         --out outputs --timestamp 20261022-101500
 
 A check is a function of one table that yields hits:
@@ -43,10 +46,6 @@ A check is a function of one table that yields hits:
     (row, column, note)
     (None, column, note)      something about a whole column or the table
 "column" may be None, a column name, or several names joined by " = ".
-
-Reading: files are read by cleanup_template.py's reader, so both scripts see
-the same rows and cells. pandas is in the dependency block because that
-module imports it.
 """
 
 from __future__ import annotations
@@ -55,6 +54,7 @@ import argparse
 import csv
 import html
 import io
+import math
 import re
 import statistics
 import sys
@@ -72,8 +72,8 @@ from cleanup_template import (
     UNUSUAL_SPACE,
     Stop,  # noqa: F401  (re-exported: the reader raises it)
     column_letter,
-    display_name,
     read_file,
+    refuse_existing,
     unique_column_names,
     write_tsv,
 )
@@ -185,6 +185,8 @@ CATEGORICAL_MAX_SHARE = 0.05
 # The share of a column's values that must read as numbers (or dates) for
 # the column to count as numeric (or dates)
 MOSTLY_SHARE = 0.9
+# The share of rows in which two columns must match to count as mostly identical
+MOSTLY_IDENTICAL_SHARE = 0.95
 FINDINGS_COLUMNS = [
     "check",
     "description",
@@ -192,7 +194,7 @@ FINDINGS_COLUMNS = [
     "spreadsheet_row",
     "column_letter",
     "column",
-    "sample_id",
+    "table_unique_id",
     "value",
     "note",
 ]
@@ -212,7 +214,7 @@ class Row(dict):
 class Table:
     def __init__(self, path: str | Path):
         self.path = Path(path)
-        self.name = display_name(self.path)
+        self.name = self.path.name
         raw_table = read_file(self.path)
         self.kind, self.text, self.bom = raw_table.kind, raw_table.text, raw_table.bom
         self.utf8, self.crlf_lines = raw_table.utf8, raw_table.crlf_lines
@@ -223,6 +225,7 @@ class Table:
         self.index = {k: i for i, k in enumerate(self.keys)}
         self.kinds: dict[str, str] = {}  # the scientist's corrections, set by CheckRun
         self.fallback: set[str] = set()  # columns given coded fallback checks
+        self.id_column = ""  # the column whose values identify rows, set by CheckRun
         self.rows: list[Row] = []
         for i, cells in enumerate(records[1:], start=2):
             row = Row(zip(self.keys, cells + [""] * (len(self.keys) - len(cells))))
@@ -250,7 +253,11 @@ def is_null(v: str) -> bool:
 
 
 def as_number(v: str):
-    return float(v) if NUMBER.fullmatch(v.strip()) else None
+    if not NUMBER.fullmatch(v.strip()):
+        return None
+    x = float(v)
+    # A value too large for a float (1e999) is not a usable number
+    return x if math.isfinite(x) else None
 
 
 def parse_date(v: str):
@@ -318,26 +325,39 @@ class CheckRun:
     def __init__(
         self,
         paths: list[str | Path],
-        sample_id: str,
+        id_columns: dict[str, str],
         as_of: str | None = None,
         kinds: dict[str, str] | None = None,
         batch_columns: list[str] | None = None,
         fallback_columns: list[str] | None = None,
     ):
-        """kinds: the scientist's corrections to the guessed column kinds, for this
-        dataset only, e.g. {"station": "categorical"}. Kept in the study's check
-        script, so they apply every time the profile is remade.
+        """id_columns: for each file (by name), the column whose values identify
+        its rows. kinds: the scientist's corrections to the guessed column kinds,
+        for this dataset only, e.g. {"station": "categorical"}. Kept in the
+        study's check script, so they apply every time the profile is remade.
         batch_columns: columns whose values mark batches (package, plate, ...),
         as agreed with the scientist; S3-19 compares each batch with the rest.
         fallback_columns: columns too large for the judgment review, as agreed
         with the scientist; only these get S3-07 and S3-14."""
         self.tables = [Table(p) for p in paths]
-        self.sample_id = sample_id
         self.as_of = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else None
         self.checks: list[tuple[str, str, Check]] = []
         self.kinds = dict(kinds or {})
         self.batch_columns = list(batch_columns or [])
         self.fallback_columns = list(fallback_columns or [])
+        # Every file needs its own ID column, and every named file must be read
+        names = {t.name for t in self.tables}
+        for name in id_columns:
+            if name not in names:
+                raise ValueError(f"id_columns: {name} is not one of these files")
+        for t in self.tables:
+            if t.name not in id_columns:
+                raise ValueError(f"id_columns: no ID column given for {t.name}")
+            if id_columns[t.name] not in t.index:
+                raise ValueError(
+                    f"id_columns: no column named {id_columns[t.name]!r} in {t.name}"
+                )
+            t.id_column = id_columns[t.name]
         known = {k for t in self.tables for k in t.keys}
         for col, kind in self.kinds.items():
             if kind not in KINDS:
@@ -485,10 +505,12 @@ class CheckRun:
         value = (
             row.get(column, "") if (row is not None and column in (row or {})) else ""
         )
-        # A PII finding names only the pattern, never the value
+        unique_id = row.get(t.id_column, "") if row is not None else ""
+        # A PII finding names only the pattern: never the value, nor an ID holding it
         if cid in PII_CHECKS:
             value = ""
-        sample = row.get(self.sample_id, "") if row is not None else ""
+            if column == t.id_column:
+                unique_id = ""
         return (
             cid,
             description,
@@ -496,7 +518,7 @@ class CheckRun:
             str(row.line) if row is not None else "",
             letters,
             column or "",
-            sample,
+            unique_id,
             value,
             note,
         )
@@ -509,7 +531,7 @@ class CheckRun:
             outdir / f"profile_{timestamp}.html",
             outdir / f"review_{timestamp}.tsv",
         )
-        _refuse_existing(fpath, ppath, rpath)
+        refuse_existing(fpath, ppath, rpath)
         self.write_findings(outdir, timestamp)
         write_tsv(rpath, REVIEW_COLUMNS, self.review_lines())
         ppath.write_text(render_profile(self), encoding="utf-8")
@@ -522,7 +544,7 @@ class CheckRun:
         outdir = Path(outdir)
         outdir.mkdir(parents=True, exist_ok=True)
         fpath = outdir / f"findings_{timestamp}.tsv"
-        _refuse_existing(fpath)
+        refuse_existing(fpath)
         # Take the as-of date from the run's timestamp; any other form leaves
         # it unset, which S3-09 reports as not checked
         if self.as_of is None:
@@ -575,13 +597,6 @@ def _coverage_advice(
     if slices_needed > max_slices:
         return too_large
     return "split across helpers"
-
-
-def _refuse_existing(*paths: Path) -> None:
-    """Refuse to overwrite any output."""
-    for path in paths:
-        if path.exists():
-            raise FileExistsError(f"{path} already exists; choose a new timestamp")
 
 
 # ---------------------------------------------------------------------------
@@ -732,7 +747,7 @@ def _s0_quotes(t):
 
 def _s1_breaks(t):
     for r, c, v in t.cells():
-        if "\t" in v or "\n" in v or ("\r" in v and t.kind == "csv"):
+        if "\t" in v or "\n" in v or "\r" in v:
             yield r, c
 
 
@@ -813,7 +828,8 @@ def _s3_mostly_identical(t):
     def test(x, y):
         n = sum(a == b for a, b in zip(x, y))
         real = sum(a == b and not is_null(a) for a, b in zip(x, y))
-        if 0.95 * len(x) <= n < len(x) and real >= 0.5 * n:  # not just shared nulls
+        # Mostly identical, and not just because of shared nulls
+        if MOSTLY_IDENTICAL_SHARE * len(x) <= n < len(x) and real >= 0.5 * n:
             lines = [r.line for r, a, b in zip(t.rows, x, y) if a != b]
             return f"{len(x) - n} rows differ: rows {_row_list(lines, 20)}"
         return None
@@ -1021,15 +1037,16 @@ def _s9_empty(t):
 
 
 def _dup_ids(run: CheckRun):
+    # Only tables with the same ID column share IDs
     seen = defaultdict(list)
     for t in run.tables:
         for r in t.rows:
-            seen[r.get(run.sample_id, "")].append((t, r))
-    for sid, where in seen.items():
+            seen[(t.id_column, r.get(t.id_column, ""))].append((t, r))
+    for (column, _), where in seen.items():
         if len(where) > 1:
             places = "; ".join(f"{t.name} row {r.line}" for t, r in where)
             for t, r in where:
-                yield t, r, run.sample_id, f"{len(where)} rows: {places}"
+                yield t, r, column, f"{len(where)} rows: {places}"
 
 
 def _across_tables(t):
@@ -1064,7 +1081,11 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
     ),
     ("S3-01", "two columns identical in every row", _s3_identical),
     ("S3-02", "two columns identical except for capitalization", _s3_case_only),
-    ("S3-03", "two columns identical in at least 95% of rows", _s3_mostly_identical),
+    (
+        "S3-03",
+        f"two columns identical in at least {MOSTLY_IDENTICAL_SHARE:.0%} of rows",
+        _s3_mostly_identical,
+    ),
     ("S3-04", "column holds only empty or null values", _s3_null_only),
     ("S3-05", "column name suggests PII or PHI", _s3_pii_name),
     ("S3-06", "value pattern suggests PII or PHI", _s3_pii_value),
@@ -1088,7 +1109,7 @@ GENERIC_CHECKS: list[tuple[str, str, Check]] = [
         "near-duplicate values that might be typos (fallback columns)",
         _s3_near_duplicates,
     ),
-    ("S3-15", "sample ID not unique (all tables)", _across_tables),
+    ("S3-15", "ID not unique (all tables with the same ID column)", _across_tables),
     ("S3-16", "number written in scientific notation", _s3_scientific),
     ("S3-17", "value may have been cut off at a length limit", _s3_truncated),
     ("S3-18", "values listed in the review file, per column", _across_tables),
@@ -1184,8 +1205,10 @@ def _batches(run: CheckRun):
 
 def _batch_shapes(run: CheckRun):
     batches = list(_batches(run))
+    id_columns = {t.id_column for t in run.tables}
     columns = sorted(
-        {c for t in run.tables for c in t.keys}, key=lambda c: (c != run.sample_id, c)
+        {c for t in run.tables for c in t.keys},
+        key=lambda c: (c not in id_columns, c),
     )
     for c in columns:
         # Shapes of this column's values in each batch, nulls left out
@@ -1398,16 +1421,31 @@ def _fmt(x: float) -> str:
 # ---------------------------------------------------------------------------
 # Command line: the PII-only run
 # ---------------------------------------------------------------------------
+def _id_column_arg(value: str) -> tuple[str, str]:
+    """FILE=COLUMN as (file name, column)."""
+    file, sep, column = value.partition("=")
+    if not (file and sep and column):
+        raise argparse.ArgumentTypeError(f"expected FILE=COLUMN, not {value!r}")
+    return Path(file).name, column
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Run only the PII checks and write only the findings file."
     )
     ap.add_argument("--pii", nargs="+", required=True, metavar="FILE")
-    ap.add_argument("--sample-id", required=True)
+    ap.add_argument(
+        "--id-column",
+        action="append",
+        required=True,
+        type=_id_column_arg,
+        metavar="FILE=COLUMN",
+        help="the column that identifies a file's rows; once per file",
+    )
     ap.add_argument("--out", required=True)
     ap.add_argument("--timestamp", required=True)
     a = ap.parse_args(argv)
-    run = CheckRun(a.pii, sample_id=a.sample_id)
+    run = CheckRun(a.pii, id_columns=dict(a.id_column))
     run.pii_checks()
     run.write_findings(a.out, a.timestamp)
     return 0

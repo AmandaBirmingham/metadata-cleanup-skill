@@ -9,7 +9,8 @@ the work, so the script must be readable without the skill installed.
 ## Starting the script
 
 Copy `scripts/cleanup_template.py` to `cleanup_draft.py`, then edit only
-`INPUTS`, `SAMPLE_ID` and the `decisions()` function. Everything after
+`INPUTS`, `ID_COLUMNS` (each table's ID column; see "The PII-only run" in
+`check_script.md`) and the `decisions()` function. Everything after
 `# === END OF DECISIONS ===` is the helper layer and stays as it is (for the
 one exception, see "Continuing earlier work" in SKILL.md). How to run the
 script is in the text at the top of the template.
@@ -62,10 +63,11 @@ Each run then carries out these steps:
    (`<file>__<tab>__draft_<timestamp>.tsv` for a workbook); the final run's
    outputs are named `<file>__cleanup_<timestamp>.tsv`, and the merged one
    `merged__cleanup_<timestamp>.tsv`. Stop if any value contains a tab or
-   line break. Every output follows the same conventions, whatever the
-   original's form, and they are the only changes made without a decision
-   (SKILL.md, rule 3): tab-separated, UTF-8 with no byte-order mark, and
-   every row ended by a line feed (LF).
+   line break, or if a repeated or blank column name has not been renamed
+   or deleted by a decision. Every output follows the same conventions,
+   whatever the original's form, and they are the only changes made without
+   a decision (SKILL.md, rule 3): tab-separated, UTF-8 with no byte-order
+   mark, and every row ended by a line feed (LF).
 8. **Write the change list and the diff.** The change list
    (`changes__draft_<timestamp>.tsv`) has one row per change: a changed
    cell, or a column or row added, renamed or deleted. Then call
@@ -104,9 +106,10 @@ and `Changes data: no`; both blocks are then `pass`, and the rejected
 proposal stays in the log as a record.
 
 The script checks itself against the decision log every time it runs, and
-stops if they disagree: every ID in the log needs exactly one block, every
-block needs an entry, decisions marked "Changes data: yes" need code, those
-marked "no" need `pass`, and a replaced decision's block must be `pass`.
+stops if they disagree: every ID in the log needs exactly one entry and
+exactly one block, every block needs an entry, decisions marked "Changes
+data: yes" need code, those marked "no" need `pass`, a replaced decision's
+block must be `pass`, and `Replaces:` must name an ID in the log.
 Tell the scientist about any mismatch before going on.
 
 ## Helper layer
