@@ -474,6 +474,17 @@ def test_normalize_whitespace_listed_columns(write):
         ct.normalize_whitespace(t, decision="D-011", columns=["nope"])
 
 
+def test_normalize_whitespace_empty_list(write):
+    rows = [["sample_name", " a"], ["S1", " x"]]
+    t = load(write, rows)
+    ct.normalize_whitespace(t, decision="D-010", columns=[])
+    expected = pd.DataFrame(
+        {"sample_name": ["S1"], " a": [" x"]}, index=["T|row 2"], dtype=str
+    )
+    pd.testing.assert_frame_equal(t.df, expected)
+    assert ct.CHANGES == []
+
+
 def test_normalize_whitespace_unusual_spaces(write):
     t = load(
         write,
@@ -498,6 +509,27 @@ def stack_parts(write):
     a = load(write, [["sample_name", "x"], ["S1", "1"]], "a.tsv", "A")
     b = load(write, [["sample_name", "x"], ["S2", "2"]], "b.tsv", "B")
     return a, b
+
+
+def test__record_after_stack(write):
+    a, b = stack_parts(write)
+    m = ct.stack([a, b], decision="D-011")
+    ct.set_value(m, ct.select(m), "x", "9", decision="D-012")
+    expected = [
+        {
+            "decision": "D-012",
+            "kind": "value changed",
+            "file": f"{name}.tsv",
+            "row": "2",
+            "column_letter": "B",
+            "column": "x",
+            "table_unique_id": sample,
+            "old": old,
+            "new": "9",
+        }
+        for name, sample, old in (("a", "S1", "1"), ("b", "S2", "2"))
+    ]
+    assert ct.CHANGES == expected
 
 
 def test_stack(write):
@@ -994,6 +1026,16 @@ def test_diff_called_for_drafts(tmp_path, monkeypatch):
         "d.html",
     ]
     assert "diff_tables.py" in calls[0]
+
+
+def test_make_diff_without_uv(monkeypatch):
+    def no_uv(cmd, **kwargs):
+        raise FileNotFoundError(2, "No such file or directory", "uv")
+
+    monkeypatch.setattr(ct.subprocess, "run", no_uv)
+    paths = [Path(n) for n in ("diff_tables.py", "prev.tsv", "new.tsv")]
+    with pytest.raises(Stop, match="a draft run needs uv"):
+        ct.make_diff(*paths, "sample_name", Path("d.html"))
 
 
 def main_on_subjects(tmp_path, monkeypatch, id_columns, *extra):

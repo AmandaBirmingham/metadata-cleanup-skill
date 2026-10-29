@@ -165,6 +165,12 @@ ROW_REVIEW_MAX_SLICES = 50
 REVIEW_ROWS_SHOWN = 10
 # Values compared at once by S3-14, bounding its memory use
 FUZZY_BLOCK = 200
+# A column card lists at most this many distinct values
+CARD_VALUES_SHOWN = 200
+# Column kind guess: values at most this long, with no spaces among the first
+# IDENTIFIER_SPACE_SAMPLE, are identifiers
+IDENTIFIER_MAX_LENGTH = 40
+IDENTIFIER_SPACE_SAMPLE = 200
 # The PII checks: run alone before any review; their findings never show values
 PII_CHECKS = ("S3-05", "S3-06")
 # A column counts as regularly written when other batches use at most this many shapes
@@ -231,6 +237,7 @@ class Table:
             row = Row(zip(self.keys, cells + [""] * (len(self.keys) - len(cells))))
             row.line, row.cells = i, cells
             self.rows.append(row)
+        self.row_at = {r.line: r for r in self.rows}  # spreadsheet row -> Row
 
     def letter(self, column: str) -> str:
         return column_letter(self.index[column]) if column in self.index else ""
@@ -310,7 +317,9 @@ def column_kind(values: list[str], name: str = "") -> str:
         return "date/time"
     if _few_distinct(distinct, n):
         return "categorical"
-    if max(len(v) for v in vals) <= 40 and not any(" " in v for v in vals[:200]):
+    longest = max(len(v) for v in vals)
+    sample = vals[:IDENTIFIER_SPACE_SAMPLE]
+    if longest <= IDENTIFIER_MAX_LENGTH and not any(" " in v for v in sample):
         return "identifier"
     return "free text"
 
@@ -358,7 +367,6 @@ class CheckRun:
                     f"id_columns: no column named {id_columns[t.name]!r} in {t.name}"
                 )
             t.id_column = id_columns[t.name]
-        known = {k for t in self.tables for k in t.keys}
         for col, kind in self.kinds.items():
             if kind not in KINDS:
                 raise ValueError(
@@ -369,12 +377,16 @@ class CheckRun:
             ("batch_columns", self.batch_columns),
             ("fallback_columns", self.fallback_columns),
         ):
-            for col in cols:
-                if col not in known:
-                    raise ValueError(f"{param}: no column named {col!r} in these files")
+            self._need_columns(param, cols)
         for t in self.tables:
             t.kinds = self.kinds
             t.fallback = set(self.fallback_columns)
+
+    def _need_columns(self, param: str, cols) -> None:
+        known = {k for t in self.tables for k in t.keys}
+        for col in cols:
+            if col not in known:
+                raise ValueError(f"{param}: no column named {col!r} in these files")
 
     def review_lines(self) -> list[tuple[str, ...]]:
         """The review file: (slice, file, column_letter, column, value, count, rows),
@@ -428,7 +440,8 @@ class CheckRun:
         high: float | None = None,
         cid: str | None = None,
     ) -> None:
-        """Flag numeric values below low or above high (only after the scientist agrees)."""
+        """Flag numeric values below low or above high."""
+        self._need_columns("range_check", [column])
         cid = cid or f"R-{column}"
         bounds = " or ".join(
             x
@@ -662,15 +675,11 @@ def frictionless_errors(t) -> list[tuple[str, int | None, int | None, str]]:
     return t._fl_errors
 
 
-def _row_at(t, line):
-    return next((r for r in t.rows if r.line == line), None)
-
-
 def _frictionless_hits(t, error_type: str):
     """(row, column key or None, note) for each frictionless error of this
     type that falls on a data row."""
     for kind, line, col, note in frictionless_errors(t):
-        r = _row_at(t, line) if kind == error_type else None
+        r = t.row_at.get(line) if kind == error_type else None
         if r is not None:
             yield r, t.keys[col - 1] if col else None, note
 
@@ -684,7 +693,7 @@ def _s0_ragged(t):
         }
     )
     for line in lines:
-        r = _row_at(t, line)
+        r = t.row_at.get(line)
         if r is not None:
             yield r, None, f"{len(r.cells)} cells; header has {len(t.header)}"
 
@@ -921,14 +930,16 @@ def _s3_mixed_dates(t):
         ]
         if not vals:
             continue
-        common = Counter(_date_format(v) for v in vals).most_common(1)[0][0]
+        formats = {v: _date_format(v) for v in set(vals)}
+        format_counts = Counter(formats[v] for v in vals)
+        common = format_counts.most_common(1)[0][0]
         for r in t.rows:
             v = r[c]
-            if v in vals and _date_format(v) != common:
+            if v in formats and formats[v] != common:
                 yield (
                     r,
                     c,
-                    f"written as {_date_format(v)}; most of the column is {common}",
+                    f"written as {formats[v]}; most of the column is {common}",
                 )
 
 
@@ -1360,10 +1371,10 @@ def _column_card(
                 items,
                 key=lambda vn: (as_number(vn[0]) is None, as_number(vn[0]) or 0, vn[0]),
             )
-        parts.append(_freq_table(items[:200]))
-        if len(items) > 200:
+        parts.append(_freq_table(items[:CARD_VALUES_SHOWN]))
+        if len(items) > CARD_VALUES_SHOWN:
             parts.append(
-                f"<div class='meta'>... and {len(items) - 200} more distinct values</div>"
+                f"<div class='meta'>... and {len(items) - CARD_VALUES_SHOWN} more distinct values</div>"
             )
     else:
         nulls_shown = [

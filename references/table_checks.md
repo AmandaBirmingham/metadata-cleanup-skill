@@ -45,10 +45,18 @@ The findings file has one S3-18 row per column, giving how many values it
 has in the review file, which slices they are in, and how to cover it:
 
 - **read directly:** the whole review file is small enough to read yourself.
-- **split across helpers:** give each slice to a helper agent (subagent)
+- **split across helpers:** Group slices and assign each group to a helper agent (subagent)
   with the questions above. A helper sees only its slices, never the input
   files, and reports the slice numbers it read and the values it flags, with
   their review-file lines. Check that every slice was reported.
+
+  Launch each helper and tell each to give its report only as its final result,
+  never as a message to the scientist. Before launching, tell the scientist
+  only that the helpers are running and that the results will come together
+  when all have finished; then say nothing until every helper has returned.
+  Then check coverage and give one combined report: possible PII first
+  (which waits for this report instead of being raised at once), then the
+  triage.
 - **too large: fallback:** the column is too large even for helpers. It gets
   coded checks instead (S3-07 gene names turned into dates, S3-14 near-
   duplicates), which are much less thorough than reading.
@@ -95,7 +103,7 @@ Possible PII never enters triage: it stops the review (SKILL.md, rule 12).
 
 - **Encoding.** Not always ASCII or UTF-8. Identify it; converting to UTF-8 is a
   decision (show any characters that change). *(Planned: conversion in the
-  cleanup template, which now stops on a file that isn't UTF-8; see
+  cleanup template, which stops on a file that isn't UTF-8; see
   BACKLOG.md. Until then, ask the scientist to save the file again as UTF-8,
   and treat the result as a new original; see "New or replacement input
   files" in `cleanup_script.md`.)*
@@ -235,11 +243,10 @@ files are often sorted, which makes a column look uniform when it isn't.
   depths; zeros where zero is impossible. What is plausible depends on the
   domain, so ask: in many but not all human studies, age > 90 or = 0 and/or
   BMI < 14 or > 60 are implausible; an age over 89 is also a HIPAA
-  identifier. Range checks agreed in the study discussion are already in the
-  check script. For every other numeric column, when going through the
-  profile with the scientist, propose a plausible range from what the column
-  measures and ask about it; add `range_check()` for those they agree to,
-  and rerun the check script.
+  identifier. For each numeric column with no range agreed in the study
+  discussion, propose a plausible range from what the column measures, ask
+  about it, and rerun the check script with the ranges they agree to (see
+  `check_script.md`).
 
 ### Probable date columns
 

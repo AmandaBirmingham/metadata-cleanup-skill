@@ -16,7 +16,8 @@ is dropped from either. Rows are matched by the key column, not by position;
 if it is missing from either file, or its values repeat or are empty in
 either, daff matches rows by content instead, and the summary says so.
 
-Prints a one-line summary. If nothing changed, says so and writes no page.
+Prints a one-line summary; a change in row order counts as a change. If
+nothing changed, says so and writes no page.
 Never overwrites an existing page.
 """
 
@@ -94,6 +95,7 @@ def main() -> int:
     # Count daff's markers: on each row, and on each column in the schema row
     row_marks = Counter(r[0] for r in rows if r)
     changed, added, removed = row_marks["->"], row_marks["+++"], row_marks["---"]
+    moved = row_marks[":"]
     schema = next((r for r in rows if r and r[0] == "!"), [])
     col_marks = Counter(schema[1:])
     cols_added, cols_removed = col_marks["+++"], col_marks["---"]
@@ -105,6 +107,7 @@ def main() -> int:
         changed
         or added
         or removed
+        or moved
         or cols_added
         or cols_removed
         or cols_renamed
@@ -127,7 +130,7 @@ def main() -> int:
     a.out.write_text(page, encoding="utf-8")
     by_content = "" if unique else f"; rows matched by content: {reason}"
     print(
-        f"{changed} rows changed, {added} added, {removed} removed; "
+        f"{changed} rows changed, {added} added, {removed} removed, {moved} moved; "
         f"{cols_added} columns added, {cols_removed} removed, "
         f"{cols_renamed} renamed, {cols_moved} moved{by_content} -> {a.out}"
     )

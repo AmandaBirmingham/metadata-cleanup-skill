@@ -54,9 +54,14 @@ def test_main_rows_and_columns_added_removed(write, tmp_path, monkeypatch, capsy
 def test_main_rows_matched_by_key_not_position(write, tmp_path, monkeypatch, capsys):
     reordered = [ROWS[0], ROWS[2], ROWS[1]]
     p = write("p.tsv", ROWS)
-    run(monkeypatch, p, write("n.tsv", reordered), tmp_path / "d.html")
+    page = tmp_path / "d.html"
+    run(monkeypatch, p, write("n.tsv", reordered), page)
     out = capsys.readouterr().out
-    assert out == "No changes between p.tsv and n.tsv; no page written.\n"
+    assert (out, page.exists()) == (
+        "0 rows changed, 0 added, 0 removed, 1 moved; "
+        f"0 columns added, 0 removed, 0 renamed, 0 moved -> {page}\n",
+        True,
+    )
 
 
 def test_main_column_renamed_or_moved(write, tmp_path, monkeypatch, capsys):
@@ -85,7 +90,7 @@ def test_main_hidden_columns_not_counted(write, tmp_path, monkeypatch, capsys):
     run(monkeypatch, write("p.tsv", wide), write("n.tsv", new), tmp_path / "d.html")
     summary = capsys.readouterr().out.split(" -> ")[0]
     assert summary == (
-        "1 rows changed, 0 added, 0 removed; "
+        "1 rows changed, 0 added, 0 removed, 0 moved; "
         "0 columns added, 0 removed, 0 renamed, 0 moved"
     )
 

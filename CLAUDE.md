@@ -48,6 +48,14 @@ and point to it if so. When a fix would restate something, move it to one
 home and replace the other copies with references. Prefer describing a
 category to listing items that will need editing as the list grows.
 
+## Reading only what was provided
+
+Never read, list or search anything outside the files provided with the
+skill, the input files, and the output folder the user named, unless the
+user gives explicit permission. When something elsewhere seems needed (an
+earlier session's files, say), say it is not available and ask the user to
+point to it. A tool that runs without a permission prompt is not consent.
+
 ## Numbering questions to the user
 
 Label each question to the user "Q" plus its number (Q1, Q2, ...), never as

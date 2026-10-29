@@ -13,8 +13,11 @@ Ask what the study is trying to find out.
 - Example: "Feeding time has a greater effect than diet on mouse gut
   microbiomes."
 
-Some studies are exploratory and have no explicit hypothesis. They still need
-the next steps, to decide what information matters most.
+Never offer "exploratory" as an answer. If the scientist says the study is
+exploratory, ask what they hope to learn: which groups, gradients or
+environments they expect to compare. Record what they say, and record
+"exploratory" only if nothing more specific comes out. Such studies still
+need the next steps, to decide what information matters most.
 
 ## 1a. Expected number of samples
 
@@ -130,9 +133,11 @@ person you are helping may not know some of the decisions. The discussion
 above cannot change anything, but its answers are still what the metadata is
 checked against. Then:
 
-- Ask briefly for what they do know: the purpose of the study, the fields it
-  will be analysed on, the controls, the host and sample types, and whether
-  the data will go to ENA.
+- Ask about every line of the study-information layout under "Records" in
+  SKILL.md, and say that anything they know about any of them is useful
+  and that the rest will be recorded as `unknown`.
+- Where sections 4a and 4b say to point out a problem while the design can
+  still change, report it instead as a limit on what these samples can show.
 - Record each answer in the decision log. Mark everything else `unknown`
   rather than guessing it; don't press for estimates the person says they
   can't give.

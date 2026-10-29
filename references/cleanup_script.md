@@ -20,8 +20,8 @@ script is in the text at the top of the template.
 - **Self-contained, with pinned dependencies.** One Python file. Heavy lifting
   is done by established libraries, declared with exact versions in a PEP 723
   inline metadata block at the top of the script, so `uv run <script>` runs it
-  with those versions. The same block also tells anyone without `uv` exactly
-  which versions to install. Dates are always read and written with an
+  with those versions; the header of `scripts/cleanup_template.py` says how
+  to run it without `uv`. Dates are always read and written with an
   explicit, scientist-confirmed format per column, never a format-guessing
   parser.
 - **A thin embedded layer.** The study-independent code no library provides
@@ -70,9 +70,10 @@ Each run then carries out these steps:
    mark, and every row ended by a line feed (LF).
 8. **Write the change list and the diff.** The change list
    (`changes__draft_<timestamp>.tsv`) has one row per change: a changed
-   cell, or a column or row added, renamed or deleted. Then call
-   `scripts/diff_tables.py` to write the diff between the previous draft
-   output and this one (see `diff_view.md`). The change list is mainly for
+   cell, or a column or row added, renamed or deleted. A change to a row
+   of a stacked table gives the file, row and column letter the row came
+   from. Then call `scripts/diff_tables.py` to write the diff between the
+   previous draft output and this one (see `diff_view.md`). The change list is mainly for
    you; the diff is what the scientist looks at. A stacked table with no
    earlier draft has nothing to diff against; the run writes
    `<name>__stacking__draft_<timestamp>.tsv` instead (rows from each table,

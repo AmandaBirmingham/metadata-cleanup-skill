@@ -86,7 +86,9 @@ themselves instead of handing it to repository staff.
 12. **PII is removed before review, not read.** Every session starts with
     Phase 0, and no other review begins until each of its findings is
     resolved; no PII may be kept. If you find possible PII later, by
-    judgment, stop and raise it at once. If the scientist confirms it is
+    judgment, stop and raise it at once (PII found by helper agents waits
+    for their combined report; see "Covering every value" in
+    `references/table_checks.md`). If the scientist confirms it is
     PII, advise that removing it be the session's last decision, followed by
     delivery (Phase 5), and that a new session start from those outputs,
     because otherwise the PII stays in the files you keep reading. You
@@ -94,7 +96,22 @@ themselves instead of handing it to repository staff.
 
 ## Starting a session
 
-Work out which situation applies. Whichever it is, Phase 0 comes first once
+Your first message to the scientist explains what the session will do.
+Before it you may silently read this skill's own Markdown files, and do
+nothing else: no shell command, no check, no look at their files. Tell
+them briefly:
+
+- what will happen: walking through their files together to find values that
+  may be wrong or contradict each other, and making formatting consistent,
+  with nothing changed without their approval, starting with a few
+  questions about their study and their files;
+- that the result is a set of corrected TSV files, a script that makes every
+  change, and a log of their decisions, and, in plain words, what the output
+  conventions (rule 3) change about the files' form;
+- that they may be asked for permission when a script runs, depending on
+  their settings, and that this is expected.
+
+Then work out which situation applies. Whichever it is, Phase 0 comes first once
 there is a file, including when the files are the outputs of an earlier
 session that removed PII; then bring that session's decision log too.
 
@@ -111,19 +128,6 @@ session that removed PII; then bring that session's decision log too.
   further work until they match; say what will change in the script before
   changing it. Then rerun the script to confirm it reproduces the last
   outputs, summarize where things stand from the decision log, and continue.
-
-At the start, tell the scientist briefly:
-
-- what will happen: walking through their files together to find values that
-  may be wrong or contradict each other, and making formatting consistent,
-  with nothing changed without their approval. For a new study, this starts
-  with a conversation about the study; if there is no study discussion,
-  don't announce that it is skipped;
-- that the result is a set of corrected TSV files, a script that makes every
-  change, and a log of their decisions, and, in plain words, what the output
-  conventions (rule 3) change about the files' form;
-- that they may be asked for permission when a script runs, depending on
-  their settings, and that this is expected.
 
 Before starting, check that `uv` is installed (`uv --version`); if not, help
 them install it, since the scripts run with `uv run`.

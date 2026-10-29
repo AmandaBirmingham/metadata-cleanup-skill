@@ -22,7 +22,8 @@ Run (final, after the scientist says the discussion is done):
         --decision-log decision_log_....md --final
 
 Without uv: install the packages in the dependency block above into the
-Python version it names, and run with python.
+Python version it names, and run with python. This works only for final
+runs; a draft run needs uv to make the diff.
 Each run starts from the original files, never writes to them, and never
 overwrites an output.
 """
@@ -69,6 +70,9 @@ WIDE_SPACES = "\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000"
 ZERO_WIDTH = "\u200b\ufeff"
 UNUSUAL_SPACE = re.compile(f"[{WIDE_SPACES}{ZERO_WIDTH}]")
 SPACES = f"[ {WIDE_SPACES}]+"
+# Output names carry one of these tags: draft runs, and the final run
+DRAFT_TAG = "draft"
+FINAL_TAG = "cleanup"
 
 
 class Stop(Exception):
@@ -298,14 +302,22 @@ def exclude(rows: RowSet, ids: list[str] | None = None, **conditions) -> RowSet:
     return RowSet(rows.table, [i for i, m in zip(rows.index, mask) if not m])
 
 
+def _source_table(table: Table, row_id: str) -> Table:
+    """The stacked part a row came from, or the table itself."""
+    part_name = row_id.split("|", 1)[0]
+    parts = [p for p in getattr(table, "parts", []) if p.name == part_name]
+    return parts[0] if parts else table
+
+
 def _record(decision, kind, table, row_id="", column="", old="", new="", letter=None):
+    source = _source_table(table, row_id)
     CHANGES.append(
         {
             "decision": decision,
             "kind": kind,
-            "file": table.file,
+            "file": source.file,
             "row": row_id.rsplit("row ", 1)[-1] if row_id else "",
-            "column_letter": table.col_id(column) if letter is None else letter,
+            "column_letter": source.col_id(column) if letter is None else letter,
             "column": column,
             "table_unique_id": table.unique_id(row_id) if row_id else "",
             "old": old,
@@ -463,7 +475,8 @@ def normalize_whitespace(
 ) -> None:
     """Strip leading and trailing spaces and collapse runs of spaces to one, in
     column names and values. Unusual spaces count as spaces; zero-width
-    characters are removed."""
+    characters are removed. columns limits the change to those columns (and
+    their names); None means every column, and an empty list none."""
 
     def clean(s: pd.Series) -> pd.Series:
         visible = s.str.replace(f"[{ZERO_WIDTH}]", "", regex=True)
@@ -479,7 +492,7 @@ def normalize_whitespace(
             rename_column(table, old, new, decision)
             renamed[old] = new
     listed = [renamed.get(c, c) for c in columns] if columns is not None else None
-    for column in listed or list(table.df.columns):
+    for column in listed if listed is not None else list(table.df.columns):
         col = table.df[column]
         _change_cells(table, list(col.index), column, list(clean(col)), decision)
 
@@ -689,31 +702,37 @@ def write_changes(path: Path) -> None:
 
 def previous_draft(outdir: Path, stem: str, timestamp: str, original: Path) -> Path:
     """The newest earlier draft output of this table, or the original file."""
+    prefix = f"{stem}__{DRAFT_TAG}_"
     earlier = sorted(
         p
-        for p in Path(outdir).glob(f"{glob.escape(stem)}__draft_*.tsv")
-        if p.name[len(stem) + 8 : -4] < timestamp
+        for p in Path(outdir).glob(f"{glob.escape(prefix)}*.tsv")
+        if p.name[len(prefix) : -4] < timestamp
     )
     return earlier[-1] if earlier else original
 
 
 def make_diff(diff_script: Path, previous: Path, new: Path, key: str, out: Path) -> str:
-    r = subprocess.run(
-        [
-            "uv",
-            "run",
-            "--quiet",
-            str(diff_script),
-            str(previous),
-            str(new),
-            "--key",
-            key,
-            "--out",
-            str(out),
-        ],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        r = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--quiet",
+                str(diff_script),
+                str(previous),
+                str(new),
+                "--key",
+                key,
+                "--out",
+                str(out),
+            ],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        raise Stop(
+            "a draft run needs uv to make the diff; install uv or run with --final"
+        )
     if r.returncode != 0:
         raise Stop(
             f"diff failed for {new.name}: {r.stderr.strip() or r.stdout.strip()}"
@@ -739,10 +758,10 @@ def main(argv: list[str] | None = None) -> int:
             raise Stop(
                 "a draft run needs --diff-script (the skill's scripts/diff_tables.py)"
             )
-        problems = log_mismatches(
-            parse_log(a.decision_log),
-            parse_blocks(Path(__file__).read_text(encoding="utf-8")),
-        )
+        log_entries = parse_log(a.decision_log)
+        script_text = Path(__file__).read_text(encoding="utf-8")
+        script_blocks = parse_blocks(script_text)
+        problems = log_mismatches(log_entries, script_blocks)
         if problems:
             raise Stop(
                 "the script and the decision log disagree:\n  " + "\n  ".join(problems)
@@ -760,7 +779,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         decisions(t)
         a.outdir.mkdir(parents=True, exist_ok=True)
-        tag = "cleanup" if a.final else "draft"
+        tag = FINAL_TAG if a.final else DRAFT_TAG
         written = {}
         for name, table in t.items():
             stem = Path(table.file).stem if name in originals else name
@@ -777,10 +796,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 # A stacked table with no earlier draft gets a report instead of a diff
                 if prev == out and getattr(t[name], "parts", None):
-                    report = a.outdir / f"{stem}__stacking__draft_{a.timestamp}.tsv"
+                    report = (
+                        a.outdir / f"{stem}__stacking__{DRAFT_TAG}_{a.timestamp}.tsv"
+                    )
                     print(write_stacking_report(t[name], by_table, report))
                 elif prev != out:
-                    page = a.outdir / f"{stem}__diff__draft_{a.timestamp}.html"
+                    page = a.outdir / f"{stem}__diff__{DRAFT_TAG}_{a.timestamp}.html"
                     key = t[name].id_column
                     summary = make_diff(a.diff_script, prev, out, key, page)
                     print(f"{stem}: {summary}")

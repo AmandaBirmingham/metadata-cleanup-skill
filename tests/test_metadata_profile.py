@@ -1085,6 +1085,13 @@ def test_range_check(write):
     assert h[0] == "R-age" and h[7] == "95" and h[1] == "age below 0 or above 90"
 
 
+def test_range_check_unknown_column(write):
+    p = write("t.tsv", [["sample_name", "age"], ["S1", "95"]])
+    run = make_run([p])
+    with pytest.raises(ValueError, match="range_check: no column named 'agee'"):
+        run.range_check("agee", 0, 90)
+
+
 def test_stage9_checks(write):
     p = write(
         "t.tsv",
