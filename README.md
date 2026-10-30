@@ -13,19 +13,7 @@ files.
 
 ## How a session works
 
-```mermaid
-flowchart TD
-    A["Explain the session"] --> B["Study discussion"]
-    B --> C["Phase 0: find and resolve PII"]
-    C --> D{"PII removed?"}
-    D -->|"yes"| E["Deliver; start a new session<br/>from the corrected files"]
-    D -->|"no"| F["Run judgment checks; scientist reviews profile"]
-    F --> G["Discuss findings; propose a change"]
-    G --> H["Show diff; scientist approves or rejects"]
-    H -->|"more findings"| G
-    H -->|"done"| I["Merge tables (if several);<br/>check required fields; validate"]
-    I --> J["Run final script; deliver outputs"]
-```
+![How a session works](session-flow.svg)
 
 ## What a session produces
 
